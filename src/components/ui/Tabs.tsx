@@ -27,14 +27,23 @@ export function Tabs<T extends string>({
       const idx = keys.indexOf(currentKey);
       if (idx === -1) return;
 
+      // In a right-to-left tablist the visual order of the tabs is reversed
+      // relative to DOM order, so the WAI-ARIA "right arrow moves to the next
+      // tab" rule has to be read against what the user can see, not against
+      // the array (#456). Without this, ArrowRight jumps to the tab drawn to
+      // the *left* in an RTL locale.
+      const rtl =
+        typeof document !== "undefined" &&
+        document.documentElement.getAttribute("dir") === "rtl";
+
       let nextIdx: number | null = null;
 
       switch (e.key) {
         case "ArrowRight":
-          nextIdx = (idx + 1) % keys.length;
+          nextIdx = rtl ? (idx - 1 + keys.length) % keys.length : (idx + 1) % keys.length;
           break;
         case "ArrowLeft":
-          nextIdx = (idx - 1 + keys.length) % keys.length;
+          nextIdx = rtl ? (idx + 1) % keys.length : (idx - 1 + keys.length) % keys.length;
           break;
         case "Home":
           nextIdx = 0;

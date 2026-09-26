@@ -6,6 +6,7 @@ import { Footer } from "@/components/layout/Footer";
 import { AuthProvider } from "@/context/AuthContext";
 import { WalletProvider } from "@/context/WalletContext";
 import { ThemeProvider, themeInitScript } from "@/context/ThemeContext";
+import { LocaleProvider, localeInitScript } from "@/context/LocaleContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,32 +46,42 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    /* `lang` and `dir` are written by localeInitScript before first paint
+       (see the script tag below), so a right-to-left viewer never sees a
+       left-to-right first frame and a screen reader never announces the
+       document in the wrong language. The literal defaults here are what the
+       server renders; the script upgrades them client-side, and
+       suppressHydrationWarning covers the attribute swap. */
     <html
       lang="en"
+      dir="ltr"
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script dangerouslySetInnerHTML={{ __html: localeInitScript }} />
       </head>
       <body className="flex min-h-full flex-col bg-[#fbfbfd] text-slate-900 dark:bg-[#0a0a0f] dark:text-white">
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-indigo-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
+          className="sr-only focus:not-sr-only focus:absolute focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-indigo-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
         >
           Skip to content
         </a>
-        <ThemeProvider>
-          <AuthProvider>
-            <WalletProvider>
-              <Navbar />
-              <main id="main-content" className="flex-1">
-                {children}
-              </main>
-              <Footer />
-            </WalletProvider>
-          </AuthProvider>
-        </ThemeProvider>
+        <LocaleProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <WalletProvider>
+                <Navbar />
+                <main id="main-content" className="flex-1">
+                  {children}
+                </main>
+                <Footer />
+              </WalletProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </LocaleProvider>
       </body>
     </html>
   );

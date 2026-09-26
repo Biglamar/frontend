@@ -3,9 +3,6 @@ import { PoolDepositButton } from "./MilestoneActions";
 
 const mockRunWithWallet = jest.fn();
 
-import { render, screen } from "@testing-library/react";
-import { PoolDepositButton } from "./MilestoneActions";
-
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: jest.fn() }),
 }));
@@ -28,8 +25,8 @@ describe("PoolDepositButton accessibility", () => {
     const error = await screen.findByRole("alert");
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAttribute("aria-describedby", error.id);
-  useWalletAction: () => ({ runWithWallet: jest.fn(), connecting: false }),
-}));
+  });
+});
 
 describe("PoolDepositButton input precision", () => {
   it("uses seven-decimal native input steps for XLM", () => {

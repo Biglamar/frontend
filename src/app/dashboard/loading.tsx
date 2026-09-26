@@ -25,7 +25,7 @@ export default function DashboardLoading() {
               <div className="h-3 rounded bg-slate-200 dark:bg-slate-800" />
               <div className="h-3 rounded bg-slate-200 dark:bg-slate-800" />
             </div>
-          </div>
+          </Card>
         ))}
       </div>
     </div>

@@ -42,14 +42,14 @@ export function AvatarStack({ seeds, max = 5 }: { seeds: string[]; max?: number 
           key={seed}
           seed={seed}
           size={28}
-          className={cn("ring-2 ring-white dark:ring-slate-950", i > 0 && "-ml-2")}
+          className={cn("ring-2 ring-white dark:ring-slate-950", i > 0 && "-ms-2")}
         />
       ))}
       {rest > 0 && (
         <span
           aria-label={`+${rest} more contributors`}
           title={hidden.join(", ")}
-          className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[11px] font-medium text-slate-600 ring-2 ring-white dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-950"
+          className="-ms-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[11px] font-medium text-slate-600 ring-2 ring-white dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-950"
         >
           +{rest}
         </span>
