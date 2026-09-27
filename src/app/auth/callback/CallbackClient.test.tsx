@@ -1,4 +1,3 @@
-import React, { useState } from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CallbackClient } from "./CallbackClient";
@@ -37,17 +36,23 @@ function makeUser(roles: string[]): AuthUser {
  * Creates a mock useAuth that starts with user: null and transitions
  * to the resolved user after login() is called, mirroring real
  * AuthContext behavior (login → refresh → setUser).
+ *
+ * login() must resolve *with* the user, not just resolve void:
+ * CallbackClient redirects on the value returned by login() (see
+ * AuthContextValue.login → Promise<AuthUser | null>), so a mock that
+ * resolves undefined makes every role assertion fall through to the
+ * contributor fallback.
  */
 function createAsyncAuthMock(resolvedUser: AuthUser) {
   let setUser: ((user: AuthUser | null) => void) | null = null;
   const loginMock = jest.fn().mockImplementation(() => {
-    return new Promise<void>((resolve) => {
+    return new Promise<AuthUser | null>((resolve) => {
       // Trigger re-render with resolved user after login completes
       setTimeout(() => {
         act(() => {
           setUser?.(resolvedUser);
         });
-        resolve();
+        resolve(resolvedUser);
       }, 0);
     });
   });
@@ -71,13 +76,8 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     mockedUseSearchParams.mockReturnValue(new URLSearchParams({ token: "jwt-token" }));
   });
 
-  it("redirects maintainer to /dashboard/maintainer", async () => {
-    const user = makeUser(["maintainer"]);
-    mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(user),
-    });
   it("redirects maintainer to /dashboard/maintainer after async login", async () => {
-    const { loginMock, getAuthValue } = createAsyncAuthMock(makeUser(["maintainer"]));
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["maintainer"]));
     // Simulate AuthContext behavior: user starts null, becomes populated after login
     let currentUser: AuthUser | null = null;
     const authValue = getAuthValue();
@@ -89,7 +89,6 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     }));
 
     // Simulate AuthContext's setUser call after login resolves
-    const originalSetUser = authValue.setUser;
     authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
       currentUser = fn(currentUser);
     };
@@ -102,13 +101,8 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     });
   });
 
-  it("redirects sponsor to /dashboard/sponsor", async () => {
-    const user = makeUser(["sponsor"]);
-    mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(user),
-    });
   it("redirects sponsor to /dashboard/sponsor after async login", async () => {
-    const { loginMock, getAuthValue } = createAsyncAuthMock(makeUser(["sponsor"]));
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["sponsor"]));
     let currentUser: AuthUser | null = null;
     const authValue = getAuthValue();
     authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
@@ -127,13 +121,8 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     });
   });
 
-  it("redirects contributor to /dashboard/contributor", async () => {
-    const user = makeUser(["contributor"]);
-    mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(user),
-    });
   it("redirects contributor to /dashboard/contributor after async login", async () => {
-    const { loginMock, getAuthValue } = createAsyncAuthMock(makeUser(["contributor"]));
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["contributor"]));
     let currentUser: AuthUser | null = null;
     const authValue = getAuthValue();
     authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
@@ -157,7 +146,7 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     mockedUseAuth.mockReturnValue({
       login: jest.fn().mockResolvedValue(user),
     });
-    const { loginMock, getAuthValue } = createAsyncAuthMock(makeUser(["sponsor", "maintainer"]));
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["sponsor", "maintainer"]));
     let currentUser: AuthUser | null = null;
     const authValue = getAuthValue();
     authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
@@ -181,7 +170,7 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     mockedUseAuth.mockReturnValue({
       login: jest.fn().mockResolvedValue(user),
     });
-    const { loginMock, getAuthValue } = createAsyncAuthMock(makeUser([]));
+    const { getAuthValue } = createAsyncAuthMock(makeUser([]));
     let currentUser: AuthUser | null = null;
     const authValue = getAuthValue();
     authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
@@ -200,7 +189,6 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
     });
   });
 
-  it("falls back to contributor when login returns null", async () => {
   it("falls back to contributor when user remains null after login", async () => {
     // Test case where login succeeds but user is still null (no roles)
     mockedUseAuth.mockReturnValue({

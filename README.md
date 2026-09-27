@@ -153,6 +153,40 @@ Both `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_STELLAR_NETWORK` are validated at bu
 
 None of these headers affect the Freighter wallet bridge or the GitHub OAuth flow: Freighter communicates via an injected browser-extension content script (`@stellar/freighter-api`), which framing/MIME/referrer/transport headers have no bearing on, and the OAuth `fetch` calls to the backend are unaffected since these headers only change what's _disclosed_, not whether a request succeeds.
 
+## Search-engine indexability policy
+
+Contributor profiles (`/reputation/[handle]`) server-render a real GitHub handle, avatar, organisations, and **lifetime earnings**. The policy is: **public by direct link, opt-in for search-engine indexing.** A profile URL always works and is shareable; it is submitted to and indexed by search engines only if the contributor has explicitly opted in.
+
+The reasoning is asymmetry of reversibility. Search indexing is effectively permanent in practice — removal requests are slow, partial, and never complete for URLs already crawled. A default of "indexed unless you opt out" makes the *harm* irreversible; a default of "not indexed unless you opt in" costs only some SEO surface, which the contributor can unlock themselves at any time. For earnings attached to a legal name, that trade is worth making.
+
+Enforced across three surfaces that can otherwise disagree:
+
+| Surface                | File                                                     | Behavior                                                                       |
+| ---------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Sitemap                | `src/app/sitemaps/[id]/route.ts`, `src/lib/api.ts`       | Only handles that opted in are listed, filtered in `fetchIndexableReputationHandles`. |
+| Per-page metadata      | `src/app/reputation/[handle]/page.tsx`                   | `noindex, nofollow` on the document for profiles that haven't opted in.         |
+| `robots.txt`           | `src/app/robots.ts`                                      | Allows `/reputation/` — see below. Dashboard and OAuth callback stay disallowed. |
+
+`robots.txt` deliberately does **not** disallow `/reputation/`: crawlers have to be able to fetch the page in order to see its `noindex` tag, and blocking the path is what leaves already-indexed URLs stuck in the index. Sitemap omission alone isn't enough either, since a URL shared in a chat or a GitHub README can still get indexed from an inbound link.
+
+**Needs a backend field.** mergefi-backend's user entity has no opt-in flag today. The frontend reads `isProfilePublic` defensively and defaults to **not** indexable, so nothing is indexed until the field ships — the safe side of the trade. Adding the field (plus a settings UI to set it) requires no further frontend change.
+
+Sitemaps are split into 50,000-URL files (`/sitemaps/<id>.xml`, with a permanent redirect from the old `/sitemap.xml`) to respect the per-file limit search engines enforce. They're served with a CDN-cacheable `Cache-Control` and memoized for an hour in-process, so crawler traffic doesn't reach the backend on every request.
+
+## Chart accessibility
+
+`BarChart` and `Sparkline` are hand-rolled — no charting library is a dependency choice here. Both are audited automatically with [`jest-axe`](https://github.com/NickColley/jest-axe) in `npm test` (so they run in CI), and the audit is also run over the composition the dashboards actually render in `src/components/dashboard/dashboard-charts.a11y.test.tsx`. The tests assert **zero** violations, not just zero critical/serious ones.
+
+| Problem | Approach |
+| --- | --- |
+| Bars conveyed only as coloured rectangles | Visual bars are `aria-hidden`; the accessible equivalent is a visually-hidden (`sr-only`) `<table>` with a caption naming the chart and a real value per row. |
+| `Sparkline` was `aria-hidden` with no equivalent at all | Now `role="img"` with an accessible name summarising the trend — point count, direction, first, last, and full range. `StatCard` forwards its own `label` so it reads as "Earnings: 8 data points, trending up from 12 to 31", not an unlabelled graphic. |
+| Values only in a `title` attribute | Unreachable by keyboard and unreliably announced. Each bar is now focusable with a visible `focus-visible` ring and reveals the same tooltip on focus (`group-focus-within`) as on hover, inside the `aria-hidden` subtree so values aren't announced twice. |
+| Sign encoded by colour alone (indigo vs rose) | Negative bars also carry a diagonal stripe pattern, and the value keeps its sign in both the tooltip and the data table. |
+| Label/series colours failing WCAG AA | Measured, not eyeballed. Bar labels: `slate-500` on white = 4.76:1 and `slate-400` on `slate-900` = 6.96:1 (previously 2.56:1 and 3.75:1, both failing). Negative bars: `rose-600/80` on white = 3.75:1, above the 3:1 required of a graphical object (previously 2.97:1). Contrast ratios are recorded in the component doc comments. |
+
+**Manual QA still required.** Automated tooling cannot verify announcement order or wording in a real screen reader, so the VoiceOver (Safari) and NVDA (Firefox/Chrome) pass over `/dashboard/sponsor`, `/dashboard/contributor`, `/dashboard/maintainer`, and `/issues/[id]` is a manual checklist: each chart is announced once with its data reachable as text, a negative bar's sign is conveyed without relying on colour, and every bar is reachable and readable by keyboard alone.
+
 ## Example user journey
 
 1. A maintainer connects a GitHub repository from `/connect`.

@@ -30,6 +30,12 @@ export interface ReputationProfile {
   onTimeDeliveryRate: number;
   languages: string[];
   organizations: string[];
+  /**
+   * Whether this contributor has opted into search-engine indexing of their
+   * profile page. Defaults to false — see src/lib/seo-policy.ts for the policy
+   * and the backend field this maps to.
+   */
+  indexable?: boolean;
 }
 
 export interface MaintenancePool {

@@ -43,10 +43,22 @@ export function renderSocialImage() {
             backgroundColor: "#a3e635",
           }}
         />
-        <div style={{ fontSize: "64px", fontWeight: 700, lineHeight: 1.1 }}>
-          Merge code.
-          <br />
-          Earn instantly.
+        <div
+          style={{
+            // satori (the OG-image renderer) rejects any element with more
+            // than one child that has no explicit `display` — the bare text +
+            // <br/> + text combination here failed the /opengraph-image
+            // prerender outright. A flex column of two spans renders the same
+            // two lines and satisfies the constraint.
+            display: "flex",
+            flexDirection: "column",
+            fontSize: "64px",
+            fontWeight: 700,
+            lineHeight: 1.1,
+          }}
+        >
+          <span>Merge code.</span>
+          <span>Earn instantly.</span>
         </div>
         <div style={{ color: "#a1a1aa", fontSize: "26px" }}>
           Fund open source work. Pay on merge.

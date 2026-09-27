@@ -89,6 +89,7 @@ describe("IssueDetailPage", () => {
     expect(screen.getByText("Part of a funded milestone")).toBeInTheDocument();
   });
 
+
   it("omits the milestone indicator for non-milestone bounties", async () => {
     await renderIssue(makeBounty());
     expect(
@@ -109,5 +110,100 @@ describe("IssueDetailPage", () => {
     );
     expect(metadata.description).toBe(bounty.description);
     expect(metadata.openGraph?.description).toBe(bounty.description);
+  });
+});
+
+/**
+ * teamSplitsValid used to be computed by adaptBounty and then read by nothing
+ * in the app, so a bounty whose splits summed to 85% rendered a public payout
+ * breakdown with no indication anything was wrong (#419).
+ */
+describe("IssueDetailPage — team split validity", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const splits = (percentages: number[]) =>
+    percentages.map((percentage, i) => ({
+      role: `Role ${i + 1}`,
+      percentage,
+    }));
+
+  it("warns with validateTeamSplits' own message when splits are invalid", async () => {
+    await renderIssue(
+      makeBounty({
+        teamSplits: splits([50, 35]),
+        teamSplitsValid: {
+          valid: false,
+          sum: 85,
+          message: "Team splits sum to 85.00% (expected 100%)",
+        },
+      }),
+    );
+
+    // The individual shares still render — the warning supplements the data.
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(screen.getByText("35%")).toBeInTheDocument();
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Team splits sum to 85.00% (expected 100%)",
+    );
+  });
+
+  it("warns for over-funded splits too", async () => {
+    await renderIssue(
+      makeBounty({
+        teamSplits: splits([70, 40]),
+        teamSplitsValid: {
+          valid: false,
+          sum: 110,
+          message: "Team splits sum to 110.00% (expected 100%)",
+        },
+      }),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Team splits sum to 110.00% (expected 100%)",
+    );
+  });
+
+  it("renders no warning when splits are valid", async () => {
+    await renderIssue(
+      makeBounty({
+        teamSplits: splits([60, 40]),
+        teamSplitsValid: { valid: true, sum: 100 },
+      }),
+    );
+
+    expect(screen.getByText("60%")).toBeInTheDocument();
+    expect(screen.getByText("40%")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Team splits sum to/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders no warning when a bounty has no team at all", async () => {
+    await renderIssue(makeBounty());
+
+    expect(
+      screen.queryByText("Team payout split"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders no warning for an empty splits array, and shows no split section", async () => {
+    // validateTeamSplits([]) short-circuits to { valid: true, sum: 0 }, so an
+    // empty-but-present array must not trigger a spurious "sums to 0%"
+    // warning — and an empty array is truthy, so the render guard has to be
+    // an explicit length check or a bare "Team payout split" header renders.
+    await renderIssue(
+      makeBounty({ teamSplits: [], teamSplitsValid: { valid: true, sum: 0 } }),
+    );
+
+    expect(
+      screen.queryByText("Team payout split"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
