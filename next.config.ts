@@ -14,7 +14,8 @@ import { loadValidatedEnv } from "./src/lib/env";
  * guaranteed to resolve tsconfig path aliases the same way application
  * code does.
  */
-loadValidatedEnv();
+const env = loadValidatedEnv();
+const apiOrigin = new URL(env.apiBaseUrl).origin;
 
 /**
  * Production security headers (#50), applied to every route below.
@@ -70,7 +71,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com data:",
       "font-src 'self'",
-      "connect-src 'self'",
+      `connect-src 'self' ${apiOrigin}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

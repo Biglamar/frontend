@@ -233,7 +233,12 @@ export default function ContributorDashboardClient() {
           onChange={setTab}
         />
       </div>
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div
+        role="tabpanel"
+        id={`tabpanel-${tab}`}
+        aria-labelledby={`tab-${tab}`}
+        className="mt-6 grid gap-4 md:grid-cols-2"
+      >
         {shownClaims.map((bounty) => (
           <BountyCard key={bounty.id} bounty={bounty} />
         ))}
