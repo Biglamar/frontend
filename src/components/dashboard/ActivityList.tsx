@@ -1,26 +1,43 @@
+import { Inbox } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCurrency } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/locale";
+import { t } from "@/lib/messages";
 import type { ActivityEvent } from "@/lib/mock-data";
 
-function timeAgo(minutes: number) {
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-// Derived at render time from the event's real timestamp (rather than a
-// static minutesAgo literal) so the "Live on the platform" feed's relative
-// time actually advances instead of showing the same age forever (#201).
-function minutesSince(occurredAt: string) {
-  return Math.max(0, Math.round((Date.now() - new Date(occurredAt).getTime()) / 60_000));
+/**
+ * Relative time comes from `Intl.RelativeTimeFormat` via the viewer's locale
+ * (#456). The previous hand-rolled ladder produced only English abbreviations
+ * ("5m ago", "3h ago", "2d ago") — grammatically wrong in most languages and
+ * not translatable at all, since "m"/"h"/"d" are ambiguous across locales
+ * (de-DE uses "Min."/"Std."/"T.", fr-FR "min"/"h"/"j").
+ */
+function timeAgo(occurredAt: string) {
+  return formatRelativeTime(occurredAt);
 }
 
 export function ActivityList({ events }: { events: ActivityEvent[] }) {
+  // An empty list used to render the bordered card with zero rows inside it —
+  // a visible empty box with no explanation. It is the only feed shared by all
+  // three dashboards and the marketing home page, so this was the most
+  // prominent missing empty state in the app.
+  if (events.length === 0) {
+    return (
+      <EmptyState
+        icon={Inbox}
+        tone="neutral"
+        size="sm"
+        title={t("empty.activity.title")}
+        description={t("empty.activity.description")}
+      />
+    );
+  }
+
   return (
-    <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+    <ul role="list" className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
       {events.map((event) => (
-        <div key={event.id} className="flex items-center justify-between gap-4 px-5 py-4">
+        <li key={event.id} className="flex items-center justify-between gap-4 px-5 py-4">
           <div className="flex items-center gap-3">
             <Avatar seed={event.handle} size={32} />
             <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -41,10 +58,10 @@ export function ActivityList({ events }: { events: ActivityEvent[] }) {
                 {formatCurrency(event.amount, event.asset)}
               </span>
             )}
-            {timeAgo(minutesSince(event.occurredAt))}
+            <time dateTime={event.occurredAt}>{timeAgo(event.occurredAt)}</time>
           </div>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

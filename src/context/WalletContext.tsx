@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -20,15 +21,39 @@ import { useCrossTabStorage } from "@/hooks/useCrossTabStorage";
 
 const WALLET_KEY = "mergefi_wallet_address";
 
+/**
+ * Durability of the current wallet connection.
+ *
+ * `local` alone was never enough to call a connection "done". Freighter
+ * access is a browser-local permission grant; the payout address that
+ * actually matters is the one on the MergeFi profile
+ * (`AuthUser.stellarAddress`), written by a server-side PATCH. A visitor who
+ * connects a wallet before signing in gets `local` and nothing else — and
+ * previously the UI showed them an identical green "Connected" banner, so
+ * they had no way to tell that payouts could never reach that address (#456).
+ */
+export type WalletLinkState = "none" | "local" | "linked";
+
 interface WalletContextValue {
   address: string | null;
   network: string | null;
   connecting: boolean;
   error: string | null;
+  /**
+   * `true` until the cached address has been read out of localStorage.
+   *
+   * Previously indistinguishable from "not connected": on first paint
+   * `address` was `null`, so the Connect CTA rendered, and a click inside the
+   * `setTimeout(0)` window re-prompted Freighter for a wallet that was
+   * already cached (#456).
+   */
+  initializing: boolean;
   /** True when Freighter's active account differs from the cached address. */
   addressMismatch: boolean;
   /** True when Freighter's network doesn't match the app's configured network. */
   networkMismatch: boolean;
+  /** How durable the current connection is. See {@link WalletLinkState}. */
+  linkState: WalletLinkState;
   connect: () => Promise<string | null>;
   disconnect: () => void;
   /**
@@ -46,13 +71,14 @@ interface WalletContextValue {
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const { user, refresh } = useAuth();
+  const { user, refresh, loading: authLoading } = useAuth();
   const [address, setAddress] = useState<string | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addressMismatch, setAddressMismatch] = useState(false);
   const [networkMismatch, setNetworkMismatch] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const errorRef = useRef<string | null>(null);
   const updateError = useCallback((message: string | null) => {
     errorRef.current = message;
@@ -89,6 +115,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           if (msg) setNetworkMismatch(true);
         });
       }
+      // Always clear `initializing`, including the no-stored-address path —
+      // otherwise a first-time visitor is stuck on a pending state forever.
+      setInitializing(false);
     }, 0);
     return () => window.clearTimeout(id);
   }, []);
@@ -96,9 +125,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const handleWalletKeyChangedElsewhere = useCallback(
     (newValue: string | null) => {
       setAddress(newValue);
-      if (newValue === null) {
-        // Disconnected in another tab — no address means no network either.
-        setNetwork(null);
+      // An address adopted from another tab belongs to the same configured
+      // network as one restored on mount (#228) — previously `network` was
+      // only set on the null branch, so an adopted address rendered as
+      // "Connected: GABC…WXYZ ()" (#456).
+      setNetwork(newValue ? STELLAR_NETWORK : null);
+      // The cached address just changed underneath us, so any mismatch we
+      // previously recorded no longer describes reality. Re-derive on next
+      // connect() rather than leaving a stale block in place forever.
+      if (newValue !== null) {
+        setAddressMismatch(false);
+        setNetworkMismatch(false);
       }
     },
     [],
@@ -120,13 +157,24 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   // #270: When AuthContext logs the user out (cross-tab or otherwise),
   // clear the wallet connection too so a stale address is never usable
   // in a tab where the session has ended.
+  //
+  // Gated on `authLoading` as well as `user`. Previously the effect's only dep
+  // was `user`, and `user` starts (and can stay) `null` on a cold load — so
+  // a visitor arriving with a cached wallet address and no valid session never
+  // transitioned `user` and this effect never ran, leaving a usable address
+  // behind. `useWalletAction` would then fund a bounty against that stale
+  // address with no `connect()` call and no PATCH (#456). Waiting for the auth
+  // resolution to finish makes the transition observable.
   useEffect(() => {
+    if (authLoading) return;
     if (user === null && addressRef.current !== null) {
       window.localStorage.removeItem(WALLET_KEY);
       setNetwork(null);
       setAddress(null);
+      setAddressMismatch(false);
+      setNetworkMismatch(false);
     }
-  }, [user]);
+  }, [user, authLoading]);
 
   const connect = useCallback(async () => {
     updateError(null);
@@ -149,7 +197,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // The wallet is still usable for signing this session even if the
           // backend write failed, but the user needs to know their payout
-          // wallet wasn't actually saved to their profile (#229).
+          // wallet wasn't actually saved to their profile (#229). Leaving
+          // `linkState` at "local" is what makes that visible — the Connect
+          // CTA stays available so they can retry the link.
           updateError(
             "Wallet connected, but couldn't save it to your profile — try reconnecting.",
           );
@@ -175,9 +225,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [user, refresh, updateError]);
 
   const disconnect = useCallback(() => {
-    window.localStorage.removeItem(WALLET_KEY);
+    // Best-effort local clear: localStorage throws in Safari private browsing.
+    try {
+      window.localStorage.removeItem(WALLET_KEY);
+    } catch {
+      // Ignore — the in-memory state below is what the UI renders from.
+    }
     setAddress(null);
     setNetwork(null);
+    // Clear the mismatch flags too. They used to survive a disconnect, and
+    // `useWalletAction` blocks on them — so "disconnect and reconnect" left
+    // the user in a loop that the UI gave them no way out of (#456).
+    setAddressMismatch(false);
+    setNetworkMismatch(false);
+    // Clear a stale connect() error. Otherwise a failed connect followed by a
+    // disconnect left the error paragraph on /connect permanently, since the
+    // only reset lived inside connect().
+    updateError(null);
     if (user) {
       // Best-effort unlink, mirroring connect()'s PATCH — the local
       // disconnect (clearing UI/localStorage state) already succeeded
@@ -188,27 +252,54 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       apiRequest(`/users/${user.id}/stellar-address`, {
         method: "PATCH",
         body: JSON.stringify({ stellarAddress: null }),
-      }).catch(() => {});
+      })
+        .then(() => {
+          void refresh();
+        })
+        .catch(() => {});
     }
-  }, [user]);
+  }, [user, refresh, updateError]);
 
-  return (
-    <WalletContext.Provider
-      value={{
-        address,
-        network,
-        connecting,
-        error,
-        addressMismatch,
-        networkMismatch,
-        connect,
-        disconnect,
-        getError,
-      }}
-    >
-      {children}
-    </WalletContext.Provider>
+  const linkState = useMemo<WalletLinkState>(() => {
+    if (!address) return "none";
+    // "linked" means the address that will receive payouts is server-side
+    // confirmed as this one. A mismatch with the on-file address is *not*
+    // linked — payouts still go to the old address, so presenting it as
+    // complete would be the exact lie this state exists to prevent.
+    if (user && user.stellarAddress === address) return "linked";
+    return "local";
+  }, [address, user]);
+
+  const value = useMemo<WalletContextValue>(
+    () => ({
+      address,
+      network,
+      connecting,
+      error,
+      initializing,
+      addressMismatch,
+      networkMismatch,
+      linkState,
+      connect,
+      disconnect,
+      getError,
+    }),
+    [
+      address,
+      network,
+      connecting,
+      error,
+      initializing,
+      addressMismatch,
+      networkMismatch,
+      linkState,
+      connect,
+      disconnect,
+      getError,
+    ],
   );
+
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
 
 export function useWallet() {

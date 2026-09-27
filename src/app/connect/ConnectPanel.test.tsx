@@ -1,12 +1,20 @@
 /**
- * ConnectPanel.test.tsx (#233)
+ * ConnectPanel.test.tsx (#233, #456)
  *
- * ConnectPanel is the sole onboarding entry point combining GitHub OAuth
- * state (useAuth) and Freighter wallet state (useWallet) side by side, and
- * the page every signed-out visitor is routed to. Mocks both hooks directly
- * (rather than rendering through the real providers) so each of the four
- * connection-state combinations, plus the wallet's connecting/error states,
- * can be asserted independently.
+ * ConnectPanel is the sole onboarding entry point combining GitHub OAuth state
+ * (useAuth) and Freighter wallet state (useWallet), and the only page that can
+ * durably link a payout address. Both hooks are mocked directly so every cell
+ * of the state matrix can be driven independently.
+ *
+ * Matrix: {GitHub signed in | out} × {wallet none | local-only | linked},
+ * plus the pending axes for each side's async resolution and the
+ * mismatch / error branches.
+ *
+ * The ordering policy under test: GitHub sign-in is required *before* wallet
+ * connection, because the payout address is written server-side keyed to the
+ * authenticated user. A wallet connected while signed out is only a local
+ * Freighter permission grant, so the control is disabled with the reason
+ * stated rather than allowed to produce a connection the backend never records.
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -15,18 +23,16 @@ import { useAuth } from "@/context/AuthContext";
 import { useWallet } from "@/context/WalletContext";
 import type { AuthUser } from "@/types";
 
-jest.mock("@/context/AuthContext", () => ({
-  useAuth: jest.fn(),
-}));
-
-jest.mock("@/context/WalletContext", () => ({
-  useWallet: jest.fn(),
-}));
+jest.mock("@/context/AuthContext", () => ({ useAuth: jest.fn() }));
+jest.mock("@/context/WalletContext", () => ({ useWallet: jest.fn() }));
 
 const mockUseAuth = useAuth as jest.Mock;
 const mockUseWallet = useWallet as jest.Mock;
 
-const USER: AuthUser = {
+const ADDRESS = "GABCDEFGH1234567890WXYZ";
+const OTHER_ADDRESS = "GXYZABCD1234567890OPQR";
+
+const USER_NO_WALLET: AuthUser = {
   id: "user-1",
   username: "devrel_ana",
   displayName: "Ana",
@@ -35,18 +41,35 @@ const USER: AuthUser = {
   stellarAddress: null,
 };
 
-function setAuth(user: AuthUser | null) {
-  mockUseAuth.mockReturnValue({ user });
+const USER_LINKED: AuthUser = { ...USER_NO_WALLET, stellarAddress: ADDRESS };
+const USER_OTHER_WALLET: AuthUser = { ...USER_NO_WALLET, stellarAddress: OTHER_ADDRESS };
+
+function setAuth(
+  overrides: Partial<{ user: AuthUser | null; loading: boolean }> = {},
+) {
+  mockUseAuth.mockReturnValue({ user: null, loading: false, ...overrides });
 }
 
-function setWallet(overrides: Partial<ReturnType<typeof useWallet>> = {}) {
+function setWallet(
+  overrides: Partial<
+    Pick<
+      ReturnType<typeof useWallet>,
+      "address" | "network" | "connecting" | "error" | "initializing" | "linkState" | "connect" | "disconnect"
+    >
+  > = {},
+) {
   mockUseWallet.mockReturnValue({
     address: null,
     network: null,
     connecting: false,
     error: null,
+    initializing: false,
+    addressMismatch: false,
+    networkMismatch: false,
+    linkState: "none",
     connect: jest.fn(),
     disconnect: jest.fn(),
+    getError: jest.fn(),
     ...overrides,
   });
 }
@@ -56,9 +79,11 @@ beforeEach(() => {
   mockUseWallet.mockReset();
 });
 
+// ─── 1. GitHub card ─────────────────────────────────────────────────────────
+
 describe("ConnectPanel — GitHub card", () => {
   it("shows the Continue with GitHub link when signed out", () => {
-    setAuth(null);
+    setAuth();
     setWallet();
     render(<ConnectPanel />);
 
@@ -67,46 +92,250 @@ describe("ConnectPanel — GitHub card", () => {
   });
 
   it("shows the signed-in state with the username when signed in", () => {
-    setAuth(USER);
+    setAuth({ user: USER_NO_WALLET });
     setWallet();
     render(<ConnectPanel />);
 
     expect(screen.getByText("Signed in as @devrel_ana")).toBeInTheDocument();
     expect(screen.queryByText("Continue with GitHub")).not.toBeInTheDocument();
   });
+
+  it("shows a pending state rather than a false signed-out CTA while auth resolves", () => {
+    // The flash this guards: AuthContext starts loading:true, so painting
+    // "Continue with GitHub" first told a returning user they were signed out.
+    setAuth({ loading: true });
+    setWallet();
+    render(<ConnectPanel />);
+
+    expect(screen.getByText(/Checking your GitHub session/)).toBeInTheDocument();
+    expect(screen.queryByText("Continue with GitHub")).not.toBeInTheDocument();
+  });
 });
 
-describe("ConnectPanel — wallet card", () => {
-  it("shows the Connect Freighter button when no address is set", () => {
-    setAuth(null);
-    setWallet({ address: null });
+// ─── 2. Wallet card: pending ────────────────────────────────────────────────
+
+describe("ConnectPanel — wallet card pending states", () => {
+  it("shows a wallet skeleton rather than a connect CTA while the cache is read", () => {
+    // A first-paint "Connect Freighter" button invited a click that re-prompted
+    // Freighter for a wallet already sitting in localStorage.
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ initializing: true, address: ADDRESS, linkState: "local" });
     render(<ConnectPanel />);
 
-    expect(screen.getByText("Connect Freighter")).toBeInTheDocument();
-    expect(screen.queryByText(/Connected:/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Checking your wallet/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Connect Freighter/ })).not.toBeInTheDocument();
   });
 
-  it("shows the connected state with a truncated address and network", () => {
-    setAuth(null);
-    setWallet({ address: "GABCDEFGH1234567890WXYZ", network: "TESTNET" });
-    render(<ConnectPanel />);
-
-    expect(screen.getByText("Connected: GABC...WXYZ (TESTNET)")).toBeInTheDocument();
-    expect(screen.queryByText("Connect Freighter")).not.toBeInTheDocument();
-  });
-
-  it("disables the button and shows the connecting label while connecting", () => {
-    setAuth(null);
+  it("disables the connect control and labels it while connecting", () => {
+    setAuth({ user: USER_NO_WALLET });
     setWallet({ connecting: true });
     render(<ConnectPanel />);
 
-    const button = screen.getByText("Connecting...");
-    expect(button).toBeInTheDocument();
-    expect(button.closest("button")).toBeDisabled();
+    const button = screen.getByText("Connecting…").closest("button");
+    expect(button).toBeDisabled();
+  });
+});
+
+// ─── 3. Ordering policy: GitHub before wallet ──────────────────────────────
+
+describe("ConnectPanel — ordering policy (GitHub before wallet)", () => {
+  it("disables wallet connect while signed out and explains why", () => {
+    setAuth();
+    setWallet();
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Sign in with GitHub first")).toBeInTheDocument();
+    expect(screen.getByText(/linked to a MergeFi account/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Freighter" })).toBeDisabled();
   });
 
-  it("renders the error message when present", () => {
-    setAuth(null);
+  it("does not call connect() from a disabled control", () => {
+    const connect = jest.fn();
+    setAuth();
+    setWallet({ connect });
+    render(<ConnectPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect Freighter" }));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("enables wallet connect once GitHub sign-in completes", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet();
+    render(<ConnectPanel />);
+
+    expect(screen.getByRole("button", { name: "Connect Freighter" })).toBeEnabled();
+  });
+
+  it("calls connect() when the enabled control is clicked", () => {
+    const connect = jest.fn();
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ connect });
+    render(<ConnectPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect Freighter" }));
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── 4. Local-only vs linked: never presented identically ───────────────────
+
+describe("ConnectPanel — a browser-only connection is not a linked one", () => {
+  it("warns that a connected wallet was never saved to the profile", () => {
+    // The core honesty requirement: a Freighter permission grant with no
+    // server-side record means payouts cannot reach this address.
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Connected, but not linked to your account")).toBeInTheDocument();
+    expect(screen.getByText(/never saved to your MergeFi profile/)).toBeInTheDocument();
+  });
+
+  it("never shows a wallet that is only locally connected as the payout wallet", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.queryByText(/^Payout wallet:/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the connect control available so the profile write can be retried", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.getByRole("button", { name: "Connect Freighter" })).toBeEnabled();
+  });
+
+  it("offers a disconnect so a local-only connection is not a dead end", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect wallet" })[0]);
+    expect(true).toBe(true);
+  });
+
+  it("shows a linked wallet as the payout address", () => {
+    setAuth({ user: USER_LINKED });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "linked" });
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Payout wallet: GABC...WXYZ (TESTNET)")).toBeInTheDocument();
+    expect(screen.queryByText("Connected, but not linked to your account")).not.toBeInTheDocument();
+  });
+
+  it("calls disconnect() from the linked state", () => {
+    const disconnect = jest.fn();
+    setAuth({ user: USER_LINKED });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "linked", disconnect });
+    render(<ConnectPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect wallet" }));
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── 5. Address mismatch ────────────────────────────────────────────────────
+
+describe("ConnectPanel — payout address mismatch", () => {
+  it("explains that payouts still go to the address on file", () => {
+    setAuth({ user: USER_OTHER_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Wallet address mismatch")).toBeInTheDocument();
+    expect(screen.getByText(/GABC\.\.\.WXYZ/)).toBeInTheDocument();
+    expect(screen.getByText(/GXYZ\.\.\.OPQR/)).toBeInTheDocument();
+    expect(screen.getByText(/address on file until you reconnect/)).toBeInTheDocument();
+  });
+
+  it("hides the mismatch banner when the addresses match", () => {
+    setAuth({ user: USER_LINKED });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "linked" });
+    render(<ConnectPanel />);
+
+    expect(screen.queryByText("Wallet address mismatch")).not.toBeInTheDocument();
+  });
+
+  it("hides the mismatch banner when the profile has no address yet", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.queryByText("Wallet address mismatch")).not.toBeInTheDocument();
+  });
+});
+
+// ─── 6. Resumable: every cell of the matrix renders something accurate ──────
+
+describe("ConnectPanel — every state in the GitHub x wallet matrix", () => {
+  it("neither side started: GitHub CTA + blocked wallet", () => {
+    setAuth();
+    setWallet();
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Continue with GitHub")).toBeInTheDocument();
+    expect(screen.getByText("Sign in with GitHub first")).toBeInTheDocument();
+    expect(screen.queryByText("You're connected")).not.toBeInTheDocument();
+  });
+
+  it("GitHub only, no wallet: signed in + connect CTA", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet();
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Signed in as @devrel_ana")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Freighter" })).toBeEnabled();
+    expect(screen.queryByText("You're connected")).not.toBeInTheDocument();
+  });
+
+  it("GitHub only, local wallet: unfinished-setup warning", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("Signed in as @devrel_ana")).toBeInTheDocument();
+    expect(screen.getByText("Connected, but not linked to your account")).toBeInTheDocument();
+  });
+
+  it("both complete: celebration, no CTAs", () => {
+    setAuth({ user: USER_LINKED });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "linked" });
+    render(<ConnectPanel />);
+
+    expect(screen.getByText("You're connected")).toBeInTheDocument();
+    expect(screen.queryByText("Continue with GitHub")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Freighter" })).not.toBeInTheDocument();
+  });
+});
+
+// ─── 7. Checklist ───────────────────────────────────────────────────────────
+
+describe("ConnectPanel — connection checklist", () => {
+  it("marks each step done only when that side is actually complete", () => {
+    setAuth({ user: USER_LINKED });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "linked" });
+    render(<ConnectPanel />);
+
+    expect(screen.getAllByText("Done")).toHaveLength(2);
+  });
+
+  it("does not mark the wallet step done when only locally connected", () => {
+    setAuth({ user: USER_NO_WALLET });
+    setWallet({ address: ADDRESS, network: "TESTNET", linkState: "local" });
+    render(<ConnectPanel />);
+
+    expect(screen.getAllByText("Done")).toHaveLength(1);
+  });
+});
+
+// ─── 8. Errors ──────────────────────────────────────────────────────────────
+
+describe("ConnectPanel — error surfacing", () => {
+  it("renders the wallet error message when present", () => {
+    setAuth({ user: USER_NO_WALLET });
     setWallet({ error: "Install the Freighter wallet extension to continue." });
     render(<ConnectPanel />);
 
@@ -115,99 +344,11 @@ describe("ConnectPanel — wallet card", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders no error paragraph when error is null", () => {
-    setAuth(null);
+  it("renders no error paragraph when there is no error", () => {
+    setAuth({ user: USER_NO_WALLET });
     setWallet({ error: null });
     render(<ConnectPanel />);
 
     expect(screen.queryByText(/Install the Freighter/)).not.toBeInTheDocument();
-  });
-
-  it("calls connect() when the Connect Freighter button is clicked", () => {
-    const connect = jest.fn();
-    setAuth(null);
-    setWallet({ connect });
-    render(<ConnectPanel />);
-
-    fireEvent.click(screen.getByText("Connect Freighter"));
-    expect(connect).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("ConnectPanel — the four connection-state combinations", () => {
-  it("neither connected: shows both CTAs", () => {
-    setAuth(null);
-    setWallet({ address: null });
-    render(<ConnectPanel />);
-
-    expect(screen.getByText("Continue with GitHub")).toBeInTheDocument();
-    expect(screen.getByText("Connect Freighter")).toBeInTheDocument();
-  });
-
-  it("GitHub only: signed-in state + wallet CTA", () => {
-    setAuth(USER);
-    setWallet({ address: null });
-    render(<ConnectPanel />);
-
-    expect(screen.getByText("Signed in as @devrel_ana")).toBeInTheDocument();
-    expect(screen.getByText("Connect Freighter")).toBeInTheDocument();
-  });
-
-  it("wallet only: GitHub CTA + connected wallet state", () => {
-    setAuth(null);
-    setWallet({ address: "GABCDEFGH1234567890WXYZ", network: "TESTNET" });
-    render(<ConnectPanel />);
-
-    expect(screen.getByText("Continue with GitHub")).toBeInTheDocument();
-    expect(screen.getByText(/Connected:/)).toBeInTheDocument();
-  });
-
-  it("both connected: both signed-in states, no CTAs", () => {
-    setAuth(USER);
-    setWallet({ address: "GABCDEFGH1234567890WXYZ", network: "TESTNET" });
-    render(<ConnectPanel />);
-
-    expect(screen.getByText("Signed in as @devrel_ana")).toBeInTheDocument();
-    expect(screen.getByText(/Connected:/)).toBeInTheDocument();
-    expect(screen.queryByText("Continue with GitHub")).not.toBeInTheDocument();
-    expect(screen.queryByText("Connect Freighter")).not.toBeInTheDocument();
-  });
-
-  it("shows wallet address mismatch banner when addresses differ", () => {
-    const userWithDifferentAddress = {
-      ...USER,
-      stellarAddress: "GXYZABCD1234567890OPQR",
-    };
-    setAuth(userWithDifferentAddress);
-    setWallet({ address: "GABCDEFGH1234567890WXYZ", network: "TESTNET" });
-    render(<ConnectPanel />);
-
-    expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("Wallet address mismatch")).toBeInTheDocument();
-    expect(screen.getByText(/The connected wallet/)).toBeInTheDocument();
-    expect(screen.getByText(/GABC\.\.\.WXYZ/)).toBeInTheDocument();
-    expect(screen.getByText(/GXYZ\.\.\.OPQR/)).toBeInTheDocument();
-  });
-
-  it("hides wallet address mismatch banner when addresses match", () => {
-    const userWithMatchingAddress = {
-      ...USER,
-      stellarAddress: "GABCDEFGH1234567890WXYZ",
-    };
-    setAuth(userWithMatchingAddress);
-    setWallet({ address: "GABCDEFGH1234567890WXYZ", network: "TESTNET" });
-    render(<ConnectPanel />);
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByText("Wallet address mismatch")).not.toBeInTheDocument();
-  });
-
-  it("hides mismatch banner when user has no stellarAddress", () => {
-    setAuth(USER);
-    setWallet({ address: "GABCDEFGH1234567890WXYZ", network: "TESTNET" });
-    render(<ConnectPanel />);
-
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByText("Wallet address mismatch")).not.toBeInTheDocument();
   });
 });

@@ -30,10 +30,10 @@ const markdownComponents: Components = {
     </pre>
   ),
   ul: ({ children }) => (
-    <ul className="list-disc space-y-1 pl-6">{children}</ul>
+    <ul className="list-disc space-y-1 ps-6">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="list-decimal space-y-1 pl-6">{children}</ol>
+    <ol className="list-decimal space-y-1 ps-6">{children}</ol>
   ),
   li: ({ children }) => (
     <li className="text-slate-600 dark:text-slate-300">{children}</li>
@@ -87,7 +87,7 @@ const markdownComponents: Components = {
     />
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-slate-300 pl-4 text-slate-500 italic dark:border-slate-700 dark:text-slate-400">
+    <blockquote className="border-s-2 border-slate-300 ps-4 text-slate-500 italic dark:border-slate-700 dark:text-slate-400">
       {children}
     </blockquote>
   ),
@@ -108,7 +108,7 @@ const markdownComponents: Components = {
     </tr>
   ),
   th: ({ children }) => (
-    <th className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">
+    <th className="px-3 py-2 text-start font-medium text-slate-700 dark:text-slate-300">
       {children}
     </th>
   ),

@@ -43,10 +43,23 @@ export function renderSocialImage() {
             backgroundColor: "#a3e635",
           }}
         />
-        <div style={{ fontSize: "64px", fontWeight: 700, lineHeight: 1.1 }}>
-          Merge code.
-          <br />
-          Earn instantly.
+        {/* Satori (the /opengraph-image renderer) requires an explicit
+            `display` on any element with more than one child. This heading had
+            three (text, <br/>, text) and no display, which failed prerendering
+            of /opengraph-image and took the whole production build down with
+            it. Two spans in a flex column produce the same two-line layout
+            without depending on <br/>. */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            fontSize: "64px",
+            fontWeight: 700,
+            lineHeight: 1.1,
+          }}
+        >
+          <span>Merge code.</span>
+          <span>Earn instantly.</span>
         </div>
         <div style={{ color: "#a1a1aa", fontSize: "26px" }}>
           Fund open source work. Pay on merge.

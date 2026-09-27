@@ -25,7 +25,7 @@ import {
   recentActivity,
   faqs,
 } from "@/lib/mock-data";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatInteger } from "@/lib/utils";
 import { STELLAR_NETWORK } from "@/lib/config";
 
 const integrations = [
@@ -122,7 +122,7 @@ export default function HomePage() {
             <span>
               Joined by{" "}
               <strong className="text-slate-900 dark:text-white">
-                {platformStats.activeContributors.toLocaleString()} contributors
+                {formatInteger(platformStats.activeContributors)} contributors
               </strong>{" "}
               already earning
             </span>
@@ -292,7 +292,7 @@ export default function HomePage() {
                 <summary className="cursor-pointer list-none font-medium text-slate-900 marker:content-none dark:text-white">
                   <span className="flex items-center justify-between">
                     {faq.question}
-                    <span aria-hidden="true" className="ml-4 text-slate-400 transition-transform group-open:rotate-45">+</span>
+                    <span aria-hidden="true" className="ms-4 text-slate-400 transition-transform group-open:rotate-45">+</span>
                   </span>
                 </summary>
                 <p className="mt-3 text-sm leading-relaxed text-slate-500 dark:text-slate-400">

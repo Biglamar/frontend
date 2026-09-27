@@ -86,13 +86,16 @@ describe("BountyCard — deadline countdown (#216)", () => {
 describe("BountyCard — status/difficulty badges (#216)", () => {
   it("renders the status and difficulty badges for a given bounty", () => {
     render(<BountyCard bounty={makeBounty({ status: "funded", difficulty: "advanced" })} />);
-    expect(screen.getByText("funded")).toBeInTheDocument();
+    expect(screen.getByText("Funded")).toBeInTheDocument();
     expect(screen.getByText("advanced")).toBeInTheDocument();
   });
 
-  it('renders the "in review" space transform for the in_review status', () => {
+  it('renders "In Review" for the in_review status, never the raw enum key', () => {
+    // Was a lower-case "in review" here while BountyStatus.tsx independently
+    // rendered "In Review" for the same enum — one bounty, two labels (#456).
     render(<BountyCard bounty={makeBounty({ status: "in_review" })} />);
-    expect(screen.getByText("in review")).toBeInTheDocument();
+    expect(screen.getByText("In Review")).toBeInTheDocument();
+    expect(screen.queryByText("in_review")).not.toBeInTheDocument();
   });
 });
 

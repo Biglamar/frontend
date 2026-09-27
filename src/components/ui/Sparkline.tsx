@@ -3,11 +3,20 @@ export function Sparkline({
   width = 96,
   height = 32,
   className,
+  mirrored = false,
 }: {
   data: number[];
   width?: number;
   height?: number;
   className?: string;
+  /**
+   * Flip the trend horizontally. SVG does not inherit `dir`, so a
+   * right-to-left viewer would otherwise see the line running in the opposite
+   * time direction to the axis it sits beside — reading "declining" as
+   * "growing". Opt-in rather than reading `dir` here so the component stays
+   * usable in isolation and in tests.
+   */
+  mirrored?: boolean;
 }) {
   if (data.length < 2) return null;
   const max = Math.max(...data);
@@ -30,19 +39,23 @@ export function Sparkline({
       aria-hidden="true"
       preserveAspectRatio="none"
     >
-      <polyline
-        points={areaPoints}
-        fill="currentColor"
-        className="opacity-10"
-      />
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      {/* `transform` on the root <svg> mirrors every child in one place —
+          doing it on the parent avoids re-deriving the point coordinates. */}
+      <g transform={mirrored ? `translate(${width},0) scale(-1,1)` : undefined}>
+        <polyline
+          points={areaPoints}
+          fill="currentColor"
+          className="opacity-10"
+        />
+        <polyline
+          points={points}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
     </svg>
   );
 }

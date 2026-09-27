@@ -54,6 +54,9 @@ function TestConsumer() {
     error,
     addressMismatch,
     networkMismatch,
+    initializing,
+    linkState,
+    network,
     connect,
     disconnect,
     getError,
@@ -64,10 +67,13 @@ function TestConsumer() {
   return (
     <div>
       <div data-testid="address">{address ?? "disconnected"}</div>
+      <div data-testid="network">{network ?? "no-network"}</div>
       <div data-testid="connecting">{String(connecting)}</div>
       <div data-testid="error">{error ?? "none"}</div>
       <div data-testid="address-mismatch">{String(addressMismatch)}</div>
       <div data-testid="network-mismatch">{String(networkMismatch)}</div>
+      <div data-testid="initializing">{String(initializing)}</div>
+      <div data-testid="link-state">{linkState}</div>
       <div data-testid="read-after-connect">{readAfterConnect}</div>
       <button onClick={() => void connect()}>connect</button>
       <button onClick={disconnect}>disconnect</button>
@@ -97,7 +103,7 @@ function dispatchWalletStorageEvent(newValue: string | null) {
 
 beforeEach(() => {
   window.localStorage.clear();
-  mockUseAuth.mockReturnValue({ user: null, refresh: mockRefresh });
+  mockUseAuth.mockReturnValue({ user: null, loading: false, refresh: mockRefresh });
   mockGetActiveFreighterAddress.mockResolvedValue(null);
   mockCheckNetworkMismatch.mockResolvedValue(null);
   mockConnectWallet.mockReset();
@@ -276,6 +282,7 @@ describe("WalletContext — connect() (#231)", () => {
   it("sets a distinct error when the wallet connects but the profile-link PATCH fails (#229)", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: "user-1" },
+      loading: false,
       refresh: mockRefresh,
     });
     mockConnectWallet.mockResolvedValue({
@@ -306,6 +313,7 @@ describe("WalletContext — connect() (#231)", () => {
   it("links the profile and refreshes the session when connected and signed in", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: "user-1" },
+      loading: false,
       refresh: mockRefresh,
     });
     mockConnectWallet.mockResolvedValue({
@@ -403,6 +411,7 @@ describe("WalletContext — disconnect() (#230, #231)", () => {
   it("unlinks stellarAddress on the backend when disconnecting while signed in (#230)", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: "user-1" },
+      loading: false,
       refresh: mockRefresh,
     });
     mockConnectWallet.mockResolvedValue({
@@ -442,6 +451,7 @@ describe("WalletContext — disconnect() (#230, #231)", () => {
   it("still clears local state even when the backend unlink call fails", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: "user-1" },
+      loading: false,
       refresh: mockRefresh,
     });
     mockConnectWallet.mockResolvedValue({
@@ -464,6 +474,290 @@ describe("WalletContext — disconnect() (#230, #231)", () => {
     fireEvent.click(screen.getByText("disconnect"));
 
     expect(screen.getByTestId("address")).toHaveTextContent("disconnected");
+    expect(window.localStorage.getItem(WALLET_KEY)).toBeNull();
+  });
+});
+
+describe("WalletContext — initializing flag (#456)", () => {
+  // Previously there was no way to tell "still reading localStorage" from "not
+  // connected". On first paint `address` was null, so the Connect CTA rendered
+  // and a click inside the setTimeout(0) window re-prompted Freighter for a
+  // wallet that was already cached.
+  it("reports initializing=true on the very first render", () => {
+    window.localStorage.setItem(WALLET_KEY, "GCACHEDADDRESS");
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    expect(screen.getByTestId("initializing")).toHaveTextContent("true");
+  });
+
+  it("clears initializing once the cache has been read", async () => {
+    window.localStorage.setItem(WALLET_KEY, "GCACHEDADDRESS");
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("initializing")).toHaveTextContent("false"));
+  });
+
+  it("clears initializing for a first-time visitor with no cached address", async () => {
+    // Otherwise a visitor who has never connected a wallet is stuck on a
+    // pending state forever, since the old code only touched the flag inside
+    // the `if (stored)` branch.
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("initializing")).toHaveTextContent("false"));
+    expect(screen.getByTestId("link-state")).toHaveTextContent("none");
+  });
+});
+
+describe("WalletContext — linkState (#456)", () => {
+  const ADDRESS = "GNEWADDRESS";
+
+  it("is 'none' with no address", async () => {
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("initializing")).toHaveTextContent("false"));
+    expect(screen.getByTestId("link-state")).toHaveTextContent("none");
+  });
+
+  it("is 'local' when connected while signed out — never 'linked'", async () => {
+    // The backend only learns the payout address through a PATCH keyed to an
+    // authenticated user, so a signed-out connection is a browser-local
+    // Freighter grant that no payout can reach. Reporting "linked" here is
+    // exactly the false confidence this state exists to prevent.
+    mockConnectWallet.mockResolvedValue({ address: ADDRESS, network: "TESTNET" });
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("local"));
+    // ...and nothing was written to the backend.
+    expect(mockApiRequest).not.toHaveBeenCalled();
+  });
+
+  it("is 'linked' only when the profile address matches the connected one", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-1", stellarAddress: ADDRESS },
+      loading: false,
+      refresh: mockRefresh,
+    });
+    mockConnectWallet.mockResolvedValue({ address: ADDRESS, network: "TESTNET" });
+    mockApiRequest.mockResolvedValue(undefined);
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("linked"));
+  });
+
+  it("is 'local', not 'linked', when the profile holds a different address", async () => {
+    // Payouts still go to the on-file address, so presenting this as complete
+    // would misdescribe where the money goes.
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-1", stellarAddress: "GDIFFERENTADDRESS" },
+      loading: false,
+      refresh: mockRefresh,
+    });
+    mockConnectWallet.mockResolvedValue({ address: ADDRESS, network: "TESTNET" });
+    mockApiRequest.mockResolvedValue(undefined);
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("local"));
+  });
+
+  it("stays 'local' when the profile PATCH fails, so the UI can offer a retry", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-1", stellarAddress: null },
+      loading: false,
+      refresh: mockRefresh,
+    });
+    mockConnectWallet.mockResolvedValue({ address: ADDRESS, network: "TESTNET" });
+    mockApiRequest.mockRejectedValue(new Error("network error"));
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("local"));
+  });
+});
+
+describe("WalletContext — disconnect() clears every derived flag (#456)", () => {
+  it("clears the mismatch flags that used to survive and block all actions", async () => {
+    // `useWalletAction` hard-blocks on addressMismatch/networkMismatch, so a
+    // disconnect that left them set produced a loop: "disconnect and reconnect
+    // to continue" with the reconnect then also blocked.
+    window.localStorage.setItem(WALLET_KEY, "GCACHEDADDRESS");
+    mockGetActiveFreighterAddress.mockResolvedValue("GDIFFERENTADDRESS");
+    mockCheckNetworkMismatch.mockResolvedValue("Wrong network");
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("address-mismatch")).toHaveTextContent("true");
+      expect(screen.getByTestId("network-mismatch")).toHaveTextContent("true");
+    });
+
+    fireEvent.click(screen.getByText("disconnect"));
+
+    expect(screen.getByTestId("address-mismatch")).toHaveTextContent("false");
+    expect(screen.getByTestId("network-mismatch")).toHaveTextContent("false");
+  });
+
+  it("clears a stale connect() error, which used to persist indefinitely", async () => {
+    mockConnectWallet.mockRejectedValue(new Error("Wallet access was not granted."));
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() =>
+      expect(screen.getByTestId("error")).toHaveTextContent("Wallet access was not granted."),
+    );
+
+    fireEvent.click(screen.getByText("disconnect"));
+    expect(screen.getByTestId("error")).toHaveTextContent("none");
+  });
+
+  it("refreshes the session after a successful unlink", async () => {
+    // Otherwise AuthUser.stellarAddress stays set on the client and the nav
+    // keeps showing a payout address the user just removed.
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-1", stellarAddress: "GNEWADDRESS" },
+      loading: false,
+      refresh: mockRefresh,
+    });
+    mockConnectWallet.mockResolvedValue({ address: "GNEWADDRESS", network: "TESTNET" });
+    mockApiRequest.mockResolvedValue(undefined);
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("linked"));
+
+    mockApiRequest.mockClear();
+    fireEvent.click(screen.getByText("disconnect"));
+
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
+  });
+});
+
+describe("WalletContext — cross-tab adopt sets the network (#456)", () => {
+  it("does not render an adopted address with an empty network", async () => {
+    // Only the null branch used to set `network`, so an address adopted from
+    // another tab rendered as "Connected: GABC…WXYZ ()".
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("initializing")).toHaveTextContent("false"));
+
+    act(() => {
+      dispatchWalletStorageEvent("GABC123FROMANOTHERTAB");
+    });
+
+    expect(screen.getByTestId("address")).toHaveTextContent("GABC123FROMANOTHERTAB");
+    expect(screen.getByTestId("network")).not.toHaveTextContent("no-network");
+  });
+
+  it("re-derives a stale mismatch flag when the cached address changes", async () => {
+    window.localStorage.setItem(WALLET_KEY, "GORIGINAL");
+    mockGetActiveFreighterAddress.mockResolvedValue("GDIFFERENTADDRESS");
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("address-mismatch")).toHaveTextContent("true"),
+    );
+
+    act(() => {
+      dispatchWalletStorageEvent("GABC123FROMANOTHERTAB");
+    });
+
+    expect(screen.getByTestId("address-mismatch")).toHaveTextContent("false");
+  });
+});
+
+describe("WalletContext — stale address is cleared once auth resolves (#456)", () => {
+  // The clearing effect's only dep used to be `user`, and `user` starts null on
+  // a cold load — so a visitor arriving with a cached wallet address and no
+  // valid session never transitioned `user`, the effect never ran, and the
+  // stale address stayed usable. `useWalletAction` would then fund a bounty
+  // against it with no connect() call and no profile write.
+  it("waits for the auth check rather than deciding on the initial null user", async () => {
+    window.localStorage.setItem(WALLET_KEY, "GSTALEADDRESS");
+    // Auth still resolving.
+    mockUseAuth.mockReturnValue({ user: null, loading: true, refresh: mockRefresh });
+
+    const { rerender } = render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    // The cached address is readable while auth is still resolving, and is
+    // deliberately NOT cleared yet — we do not know yet whether there is a
+    // session it belongs to.
+    await waitFor(() => expect(screen.getByTestId("address")).toHaveTextContent("GSTALEADDRESS"));
+    expect(window.localStorage.getItem(WALLET_KEY)).toBe("GSTALEADDRESS");
+
+    // Auth finishes, with no session.
+    mockUseAuth.mockReturnValue({ user: null, loading: false, refresh: mockRefresh });
+    rerender(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("address")).toHaveTextContent("disconnected"));
     expect(window.localStorage.getItem(WALLET_KEY)).toBeNull();
   });
 });
