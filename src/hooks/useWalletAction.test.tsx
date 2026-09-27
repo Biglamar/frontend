@@ -17,6 +17,9 @@ function setWallet(overrides: Partial<ReturnType<typeof useWallet>> = {}) {
     initializing: false,
     addressMismatch: false,
     networkMismatch: false,
+    // A live re-check that agrees with the cached flag — the default for
+    // every test that isn't specifically exercising the re-check.
+    recheckNetworkMismatch: jest.fn().mockResolvedValue(false),
     linkState: "none",
     connect: jest.fn(),
     disconnect: jest.fn(),
@@ -30,12 +33,9 @@ beforeEach(() => {
 });
 
 describe("useWalletAction", () => {
-  it.each([
-    ["addressMismatch", "Freighter's active account has changed."],
-    ["networkMismatch", "Your Freighter wallet is on the wrong network."],
-  ] as const)("blocks signing when %s is set", async (mismatch, message) => {
+  it("blocks signing when addressMismatch is set", async () => {
     const connect = jest.fn();
-    setWallet({ [mismatch]: true, connect } as Partial<ReturnType<typeof useWallet>>);
+    setWallet({ addressMismatch: true, connect });
     const action = jest.fn();
     const { result } = renderHook(() => useWalletAction());
 
@@ -44,9 +44,70 @@ describe("useWalletAction", () => {
       response = await result.current.runWithWallet(action, "Fallback message.");
     });
 
-    expect(response!).toEqual({ ok: false, error: expect.stringContaining(message) });
+    expect(response!).toEqual({ ok: false, error: expect.stringContaining("active account has changed") });
     expect(connect).not.toHaveBeenCalled();
     expect(action).not.toHaveBeenCalled();
+  });
+
+  it("blocks signing when a live network re-check confirms the cached mismatch", async () => {
+    const connect = jest.fn();
+    const recheckNetworkMismatch = jest.fn().mockResolvedValue(true);
+    setWallet({ networkMismatch: true, recheckNetworkMismatch, connect });
+    const action = jest.fn();
+    const { result } = renderHook(() => useWalletAction());
+
+    let response: Awaited<ReturnType<typeof result.current.runWithWallet>>;
+    await act(async () => {
+      response = await result.current.runWithWallet(action, "Fallback message.");
+    });
+
+    expect(response!).toEqual({ ok: false, error: expect.stringContaining("wrong network") });
+    expect(recheckNetworkMismatch).toHaveBeenCalledTimes(1);
+    expect(connect).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  // The cached flag is only written on mount. A user who switches Freighter
+  // back to the right network after that used to stay blocked for the rest of
+  // the session — the stale `true` was authoritative — so the action is
+  // re-checked rather than trusted.
+  it("proceeds when a stale networkMismatch clears under a live re-check", async () => {
+    const recheckNetworkMismatch = jest.fn().mockResolvedValue(false);
+    setWallet({
+      networkMismatch: true,
+      recheckNetworkMismatch,
+      address: "GCACHED",
+      connect: jest.fn(),
+    });
+    const action = jest.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useWalletAction());
+
+    let response: Awaited<ReturnType<typeof result.current.runWithWallet>>;
+    await act(async () => {
+      response = await result.current.runWithWallet(action, "Fallback message.");
+    });
+
+    expect(response!).toEqual({ ok: true });
+    expect(recheckNetworkMismatch).toHaveBeenCalledTimes(1);
+    expect(action).toHaveBeenCalledWith("GCACHED");
+  });
+
+  it("does not spend a re-check when there is no mismatch to question", async () => {
+    const recheckNetworkMismatch = jest.fn().mockResolvedValue(false);
+    setWallet({
+      networkMismatch: false,
+      recheckNetworkMismatch,
+      address: "GCACHED",
+      connect: jest.fn(),
+    });
+    const action = jest.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useWalletAction());
+
+    await act(async () => {
+      await result.current.runWithWallet(action, "Fallback message.");
+    });
+
+    expect(recheckNetworkMismatch).not.toHaveBeenCalled();
   });
 
   it("returns the fresh connection error when connect resolves without an address", async () => {

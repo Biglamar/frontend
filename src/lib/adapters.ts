@@ -59,6 +59,11 @@ export interface RawBounty {
   escrowId: string | null;
   issue?: RawIssue;
   claimedBy?: RawUser | null;
+  // Nullable column on mergefi-backend's Bounty entity — the sponsor of a
+  // bounty that was created without one (or before the column existed) comes
+  // back as `null`, not as a missing key. Normalized to `undefined` below so
+  // callers can rely on a single "unknown funder" representation.
+  sponsorId?: string | null;
   team?: { splits?: RawTeamSplit[] } | null;
 }
 
@@ -92,6 +97,11 @@ export interface RawBounty {
  *   backend endpoint (bounties filtered by milestoneId) or fetching every
  *   bounty on a funding-overview page just to filter client-side —
  *   real new scope, not a natural extension of restoring this mapping.
+ *
+ * Contrast with `sponsorId`: unlike `issue`/`claimedBy`/`team`, sponsor is a
+ * plain column on the Bounty row (not a relation that needs a `relations`
+ * option to hydrate), so it is present on live responses today regardless of
+ * that gap.
  */
 export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { valid: boolean; sum: number; message?: string } } {
   const splits = raw.team?.splits?.map(
@@ -121,6 +131,7 @@ export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { vali
     labels: raw.issue?.labels ?? [],
     claimedBy: raw.claimedBy?.username,
     claimedById: raw.claimedBy?.id,
+    sponsorId: raw.sponsorId ?? undefined,
     milestoneId: raw.issue?.milestoneId ?? undefined,
     escrowId: raw.escrowId ?? undefined,
     teamSplits: splits,

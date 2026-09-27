@@ -9,6 +9,7 @@ interface BountyStatusProps {
   fallbackBounty?: Bounty;
   onStatusChange?: (status: BountyStatus) => void;
   className?: string;
+  interval?: number;
 }
 
 const statusColors: Record<BountyStatus, string> = {
@@ -37,7 +38,8 @@ export function BountyStatus({
   bountyId, 
   fallbackBounty, 
   onStatusChange, 
-  className = '' 
+  className = '', 
+  interval = 5000, 
 }: BountyStatusProps) {
   const {
     bounty,
@@ -51,7 +53,7 @@ export function BountyStatus({
   } = useBountyStatus({
     bountyId,
     fallbackBounty,
-    interval: 5000,
+    interval,
     onStatusChange,
   });
 

@@ -60,9 +60,11 @@ function TestConsumer() {
     connect,
     disconnect,
     getError,
+    recheckNetworkMismatch,
   } = useWallet();
   const [readAfterConnect, setReadAfterConnect] =
     useState<string>("not-read-yet");
+  const [recheckResult, setRecheckResult] = useState<string>("not-rechecked");
 
   return (
     <div>
@@ -75,6 +77,7 @@ function TestConsumer() {
       <div data-testid="initializing">{String(initializing)}</div>
       <div data-testid="link-state">{linkState}</div>
       <div data-testid="read-after-connect">{readAfterConnect}</div>
+      <div data-testid="recheck-result">{recheckResult}</div>
       <button onClick={() => void connect()}>connect</button>
       <button onClick={disconnect}>disconnect</button>
       <button
@@ -86,6 +89,14 @@ function TestConsumer() {
         }}
       >
         connect-and-read-getError
+      </button>
+      <button
+        onClick={async () => {
+          const stillMismatched = await recheckNetworkMismatch();
+          setRecheckResult(String(stillMismatched));
+        }}
+      >
+        recheck-network
       </button>
     </div>
   );
@@ -759,5 +770,70 @@ describe("WalletContext — stale address is cleared once auth resolves (#456)",
 
     await waitFor(() => expect(screen.getByTestId("address")).toHaveTextContent("disconnected"));
     expect(window.localStorage.getItem(WALLET_KEY)).toBeNull();
+  });
+});
+
+describe("WalletContext — recheckNetworkMismatch (issue #4: stale flag blocked actions)", () => {
+  it("clears a mismatch the user has since fixed inside the extension", async () => {
+    window.localStorage.setItem(WALLET_KEY, "GCACHEDADDRESS");
+    mockCheckNetworkMismatch.mockResolvedValue("Wrong network");
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("network-mismatch")).toHaveTextContent("true"),
+    );
+
+    // The user switches to the configured network in Freighter. Nothing
+    // re-runs the mount-time check, so the flag used to stay true forever
+    // and `useWalletAction` refused to run any action for the session.
+    mockCheckNetworkMismatch.mockResolvedValue(null);
+    await act(async () => {
+      fireEvent.click(screen.getByText("recheck-network"));
+    });
+
+    expect(screen.getByTestId("recheck-result")).toHaveTextContent("false");
+    expect(screen.getByTestId("network-mismatch")).toHaveTextContent("false");
+  });
+
+  it("returns true and keeps the flag while the wallet is still misconfigured", async () => {
+    window.localStorage.setItem(WALLET_KEY, "GCACHEDADDRESS");
+    mockCheckNetworkMismatch.mockResolvedValue("Wrong network");
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("network-mismatch")).toHaveTextContent("true"),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("recheck-network"));
+    });
+
+    expect(screen.getByTestId("recheck-result")).toHaveTextContent("true");
+    expect(screen.getByTestId("network-mismatch")).toHaveTextContent("true");
+  });
+
+  it("reports no mismatch for a reader with no cached connection", async () => {
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("recheck-network"));
+    });
+
+    expect(screen.getByTestId("recheck-result")).toHaveTextContent("false");
+    expect(screen.getByTestId("network-mismatch")).toHaveTextContent("false");
   });
 });

@@ -17,6 +17,7 @@ export function useWalletAction() {
     initializing,
     addressMismatch,
     networkMismatch,
+    recheckNetworkMismatch,
     getError,
   } = useWallet();
 
@@ -25,7 +26,17 @@ export function useWalletAction() {
     connectError: string,
   ): Promise<WalletActionResult> {
     if (addressMismatch) return { ok: false, error: ADDRESS_MISMATCH_ERROR };
-    if (networkMismatch) return { ok: false, error: NETWORK_MISMATCH_ERROR };
+    // `networkMismatch` is only ever written on mount (and cleared on
+    // connect/disconnect), so treating it as authoritative here locked a
+    // user out for the rest of the session: they'd fix the network inside
+    // Freighter, and the stale flag still blocked every fund/claim/refund/
+    // deposit until a full page reload — while /connect happily showed
+    // "Connected", because that path calls connect() directly and clears the
+    // flag. Re-ask instead of trusting the snapshot; only when the answer is
+    // still "wrong network" do we block.
+    if (networkMismatch && (await recheckNetworkMismatch())) {
+      return { ok: false, error: NETWORK_MISMATCH_ERROR };
+    }
     // `address` is null until WalletContext has read the cached address out of
     // localStorage. Without this guard a click in that window took the
     // `address ?? await connect()` path and re-prompted Freighter for a wallet
