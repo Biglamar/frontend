@@ -232,11 +232,33 @@ export async function fetchReputationByUsername(
   }
 }
 
-export async function fetchReputationHandles(fallback: string[]): Promise<FetchResult<string[]>> {
+/**
+ * Handles eligible to appear in the sitemap — i.e. profiles whose owner has
+ * opted into search-engine indexing.
+ *
+ * The filter is the enforcement point for the privacy policy documented in
+ * src/lib/seo-policy.ts: without it, calling the /users endpoint to enumerate
+ * handles builds a crawlable directory of who earns what, tied to real GitHub
+ * identities. Anything other than an explicit `isProfilePublic: true` is
+ * excluded, so the endpoint omitting the field (as it does today) means
+ * nothing is indexed rather than everything.
+ */
+export async function fetchIndexableReputationHandles(
+  fallback: string[],
+): Promise<FetchResult<string[]>> {
   try {
     const users = await request<(RawUserProfile & { id: string })[]>("/users");
-    return { data: users.map((user) => user.username).filter(Boolean), source: "live" };
+    return {
+      data: users
+        .filter((user) => user.isProfilePublic === true)
+        .map((user) => user.username)
+        .filter(Boolean),
+      source: "live",
+    };
   } catch {
+    // The mock fixtures represent contributors who have opted in, so local
+    // development exercises the same code path production will take once the
+    // backend ships the flag.
     return { data: fallback, source: "mock" };
   }
 }

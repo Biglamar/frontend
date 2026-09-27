@@ -29,15 +29,12 @@ interface AuthContextValue {
   loading: boolean;
   login: (token: string) => Promise<AuthUser | null>;
   logout: () => void;
-  /** Re-resolve the session from the persisted token. Resolves to the user, or null. */
+  // Resolves with the session's user (null when there's no valid token, after
+  // a 401/403, or when all retries are exhausted) — CallbackClient awaits
+  // login() and redirects on the *resolved* user, so this must not be
+  // Promise<void> or the role-based redirect silently degrades to the
+  // contributor fallback.
   refresh: () => Promise<AuthUser | null>;
-  /**
-   * `true` when the stored token could not be exchanged for a profile because
-   * the backend was unreachable, as opposed to the token being genuinely
-   * invalid. Consumers must not render "signed out" for this state: the user
-   * holds a valid token, they just could not be identified right now.
-   */
-  degraded: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);

@@ -143,6 +143,10 @@ export const mockReputationProfiles: Record<string, ReputationProfile> = {
     onTimeDeliveryRate: 0.88,
     languages: ["Rust", "TypeScript", "Go"],
     organizations: ["stellar-labs", "mergefi"],
+    // Demo fixtures stand in for contributors who have opted into search-engine
+    // indexing, so local dev exercises the sitemap path the backend flag will
+    // drive in production (see src/lib/seo-policy.ts).
+    indexable: true,
   },
   "0xkoda": {
     handle: "0xkoda",
@@ -154,6 +158,7 @@ export const mockReputationProfiles: Record<string, ReputationProfile> = {
     onTimeDeliveryRate: 0.81,
     languages: ["Rust", "Solidity"],
     organizations: ["mergefi"],
+    indexable: true,
   },
   devrel_ana: {
     handle: "devrel_ana",
@@ -165,6 +170,7 @@ export const mockReputationProfiles: Record<string, ReputationProfile> = {
     onTimeDeliveryRate: 0.85,
     languages: ["TypeScript", "JavaScript"],
     organizations: ["stellar-labs"],
+    indexable: true,
   },
   qa_marcus: {
     handle: "qa_marcus",
@@ -176,6 +182,10 @@ export const mockReputationProfiles: Record<string, ReputationProfile> = {
     onTimeDeliveryRate: 0.9,
     languages: ["Go", "Python"],
     organizations: ["stellar-labs", "mergefi"],
+    // Demo fixtures stand in for contributors who have opted into search-engine
+    // indexing, so local dev exercises the sitemap path the backend flag will
+    // drive in production (see src/lib/seo-policy.ts).
+    indexable: true,
   },
   linh_dev: {
     handle: "linh_dev",
@@ -187,6 +197,7 @@ export const mockReputationProfiles: Record<string, ReputationProfile> = {
     onTimeDeliveryRate: 0.78,
     languages: ["TypeScript", "Rust"],
     organizations: ["mergefi"],
+    indexable: true,
   },
 };
 

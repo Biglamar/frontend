@@ -43,14 +43,13 @@ export function renderSocialImage() {
             backgroundColor: "#a3e635",
           }}
         />
-        {/* Satori (the /opengraph-image renderer) requires an explicit
-            `display` on any element with more than one child. This heading had
-            three (text, <br/>, text) and no display, which failed prerendering
-            of /opengraph-image and took the whole production build down with
-            it. Two spans in a flex column produce the same two-line layout
-            without depending on <br/>. */}
         <div
           style={{
+            // satori (the OG-image renderer) rejects any element with more
+            // than one child that has no explicit `display` — the bare text +
+            // <br/> + text combination here failed the /opengraph-image
+            // prerender outright. A flex column of two spans renders the same
+            // two lines and satisfies the constraint.
             display: "flex",
             flexDirection: "column",
             fontSize: "64px",

@@ -18,6 +18,18 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // SCOPED OUT (deliberate, not overlooked): bounty.teamSplitsValid is now
+  // surfaced as a visible warning on IssueDetailPage, but it does *not* gate
+  // "Claim this issue" or "Fund this bounty" here. Claiming is a
+  // server-authoritative action — the backend re-validates the split before
+  // any payout is released, so client-side gating here would only add a dead
+  // end: a contributor blocked from claiming because of a split they don't
+  // control (the sponsor/maintainer sets it) would have no way to resolve it.
+  // A blocked action with no recovery path is worse than a visible warning.
+  // If split integrity ever needs to be enforced at claim time, it belongs in
+  // the backend's claim/payout validation, surfaced as an error on the POST —
+  // not as a client-side disabled button.
+
   async function handleFund() {
     setError(null);
     setNotice(null);

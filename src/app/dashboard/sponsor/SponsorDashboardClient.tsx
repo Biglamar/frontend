@@ -196,7 +196,11 @@ export default function SponsorDashboardClient() {
             {isLive && <SampleDataChip />}
           </div>
           <div className="mt-6">
-            <BarChart data={spendChartData} formatValue={(v) => formatCurrency(v)} />
+            <BarChart
+              data={spendChartData}
+              formatValue={(v) => formatCurrency(v)}
+              title="Spend, last 8 weeks"
+            />
           </div>
         </Card>
         <Card>
