@@ -12,12 +12,56 @@ import type { Bounty } from "@/types";
 
 export function IssueActions({ bounty }: { bounty: Bounty }) {
   const router = useRouter();
-  useAuth();
+  const { user } = useAuth();
   const { runWithWallet, connecting } = useWalletAction();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  /**
+   * Whether the signed-in user is this bounty's sponsor, i.e. the account
+   * whose money the escrow holds.
+   *
+   * Fail closed on every missing half: signed out, or a bounty with no
+   * `sponsorId` (mock data, or a backend response predating the column) —
+   * in neither case can we demonstrate the viewer is the funder, and the
+   * refund button must not be offered on an assumption.
+   *
+   * Not a *security* boundary — mergefi-backend independently enforces
+   * `bounty.sponsorId === callerUserId` inside `BountiesService.refund()`
+   * (ForbiddenException → 403; see the note on `handleRefund` below). This
+   * exists so the UI stops advertising a destructive action to every visitor
+   * who can read the page.
+   */
+  const isSponsor = !!user && !!bounty.sponsorId && user.id === bounty.sponsorId;
+
+  /**
+   * "Fund this bounty" is deliberately gated on `status === "open"` only —
+   * unlike "Refund sponsor", it is not additionally gated on `isSponsor`.
+   * The asymmetry is a design decision, so here is the reasoning, confirmed
+   * against mergefi-backend rather than assumed:
+   *
+   * - Server-side the two routes are authorized *identically*:
+   *   `POST /bounties/:id/fund` and `POST /bounties/:id/refund` both require
+   *   the SPONSOR or MAINTAINER role, and both services throw
+   *   `ForbiddenException` unless `bounty.sponsorId === callerUserId`. There
+   *   is no crowdfunding path — a bounty carries a single nullable
+   *   `sponsorId` FK and a single `Escrow` row, so "the funder" is always
+   *   exactly one account, never a set of contributors.
+   * - Refund was the one to gate in the UI because it was being offered to
+   *   every authenticated visitor with no relationship check at all: a
+   *   destructive, already-funded escrow action advertised as a normal
+   *   button. The affordance itself was the bug.
+   * - Fund stays open as the page's primary forward CTA on an open bounty.
+   *   A viewer who isn't the sponsor gets the backend's 403 surfaced as a
+   *   normal error message, having moved no money — a rejected forward
+   *   action, not a hijackable one.
+   *
+   * Both buttons are therefore sponsor-only in effect; only refund is
+   * sponsor-only in appearance. If that becomes confusing rather than
+   * economical, gating Fund on `isSponsor` too is a one-line change — the
+   * field it needs now exists.
+   */
   // SCOPED OUT (deliberate, not overlooked): bounty.teamSplitsValid is now
   // surfaced as a visible warning on IssueDetailPage, but it does *not* gate
   // "Claim this issue" or "Fund this bounty" here. Claiming is a
@@ -59,6 +103,17 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     router.refresh();
   };
 
+  /**
+   * Refund the escrowed bounty back to its sponsor.
+   *
+   * Note the request body carries no sponsor identity, and deliberately
+   * shouldn't: mergefi-backend reads the caller from the JWT
+   * (`req.user.userId`) and compares it to `bounty.sponsorId` itself, so a
+   * client-supplied `funderId` would be ignored rather than trusted. The
+   * identity check that matters therefore happens twice — server-side as a
+   * hard 403, and in the render condition below so the button is never
+   * offered to someone the server is going to reject.
+   */
   async function handleRefund() {
     const confirmed = window.confirm(
       `Are you sure you want to refund this bounty? This will return ${formatCurrency(bounty.reward, bounty.asset)} to the sponsor and cannot be undone.`,
@@ -96,7 +151,12 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
             onClaimSuccess={handleClaimSuccess}
           />
         )}
-        {(bounty.status === "funded" || bounty.status === "claimed") && (
+        {/*
+          Sponsor-only. Rendered for nobody else — not for signed-out
+          readers, not for a contributor browsing funded work, and not when
+          the bounty carries no sponsorId to compare against. See isSponsor.
+        */}
+        {isSponsor && (bounty.status === "funded" || bounty.status === "claimed") && (
           <Button size="lg" variant="outline" onClick={handleRefund} loading={pending}>
             Refund sponsor
           </Button>

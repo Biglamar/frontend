@@ -105,6 +105,22 @@ describe("adaptBounty — claimedById mapping (#203)", () => {
   });
 });
 
+describe("adaptBounty — sponsorId mapping", () => {
+  it("passes the sponsor's stable id straight through", () => {
+    const raw = rawBounty({ sponsorId: "sponsor-1" });
+    expect(adaptBounty(raw).sponsorId).toBe("sponsor-1");
+  });
+
+  it("normalizes a null sponsorId to undefined", () => {
+    // Nullable column: "no sponsor on file" is reported as `null`.
+    expect(adaptBounty(rawBounty({ sponsorId: null })).sponsorId).toBeUndefined();
+  });
+
+  it("leaves sponsorId undefined when the key is absent entirely", () => {
+    expect(adaptBounty(rawBounty({ sponsorId: undefined })).sponsorId).toBeUndefined();
+  });
+});
+
 describe("adaptBounty — field coverage audit (#86)", () => {
   // Every key the Bounty interface declares (src/types/index.ts). Kept as
   // an explicit list, checked against adaptBounty's actual output below,
@@ -125,6 +141,7 @@ describe("adaptBounty — field coverage audit (#86)", () => {
     "labels",
     "claimedBy",
     "claimedById",
+    "sponsorId",
     "teamSplits",
     "teamSplitsValid",
     "milestoneId",
@@ -134,6 +151,7 @@ describe("adaptBounty — field coverage audit (#86)", () => {
   it("sets every Bounty field to a defined value given a fully-populated raw bounty", () => {
     const raw = rawBounty({
       escrowId: "escrow-1",
+      sponsorId: "sponsor-1",
       claimedBy: { id: "user-1", username: "alice" },
       team: { splits: [{ role: "Lead", percentage: "100", user: { username: "alice" } }] },
       issue: {

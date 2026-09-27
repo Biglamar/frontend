@@ -52,6 +52,20 @@ interface WalletContextValue {
   addressMismatch: boolean;
   /** True when Freighter's network doesn't match the app's configured network. */
   networkMismatch: boolean;
+  /**
+   * Re-run the Freighter network check and store the result, resolving to
+   * whether there is *still* a mismatch.
+   *
+   * `networkMismatch` set on mount is a snapshot of one moment. The user can
+   * switch networks inside the extension at any time afterwards — in either
+   * direction — and nothing re-derives the flag until a full page reload, so
+   * a stale `true` blocked every fund/claim/refund/deposit for the rest of
+   * the session even after the problem was fixed, and a stale `false` let a
+   * late switch go unchecked. Callers that are about to do something
+   * consequential ask for a fresh answer here instead of trusting the cached
+   * one.
+   */
+  recheckNetworkMismatch: () => Promise<boolean>;
   /** How durable the current connection is. See {@link WalletLinkState}. */
   linkState: WalletLinkState;
   connect: () => Promise<string | null>;
@@ -86,6 +100,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const getError = useCallback(() => errorRef.current, []);
 
+  const recheckNetworkMismatch = useCallback(async (): Promise<boolean> => {
+    const msg = await checkNetworkMismatch();
+    setNetworkMismatch(!!msg);
+    return !!msg;
+  }, []);
+
   useEffect(() => {
     // localStorage is unavailable during SSR, so this can't be a lazy
     // useState initializer — it must run after mount on the client.
@@ -111,16 +131,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         });
 
         // Also verify the extension's network matches the app's (#2).
-        checkNetworkMismatch().then((msg) => {
-          if (msg) setNetworkMismatch(true);
-        });
+        void recheckNetworkMismatch();
       }
       // Always clear `initializing`, including the no-stored-address path —
       // otherwise a first-time visitor is stuck on a pending state forever.
       setInitializing(false);
     }, 0);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [recheckNetworkMismatch]);
 
   const handleWalletKeyChangedElsewhere = useCallback(
     (newValue: string | null) => {
@@ -279,6 +297,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       initializing,
       addressMismatch,
       networkMismatch,
+      recheckNetworkMismatch,
       linkState,
       connect,
       disconnect,
@@ -292,6 +311,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       initializing,
       addressMismatch,
       networkMismatch,
+      recheckNetworkMismatch,
       linkState,
       connect,
       disconnect,

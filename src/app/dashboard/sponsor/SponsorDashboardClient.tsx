@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { Wallet, Receipt, Lock, FolderGit2, Inbox, CheckCircle2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
@@ -49,7 +49,15 @@ export default function SponsorDashboardClient() {
   // hiding the whole page, and errors rather than flashing zeroes.
   const [fetchStatus, setFetchStatus] = useState<StatCardStatus>("loading");
 
+  // Drops responses from a superseded run of the effect below. Even with
+  // `user?.id` as the dependency, `loading` flipping (cross-tab login, token
+  // re-resolve) re-runs this fetch while the previous one may still be in
+  // flight, and an unmount mid-request would otherwise write state into a
+  // component that no longer exists. Last-started wins, not last-to-resolve.
+  const fetchGeneration = useRef(0);
+
   useEffect(() => {
+    const generation = ++fetchGeneration.current;
     if (loading) return;
 
     if (!user) {
@@ -81,6 +89,7 @@ export default function SponsorDashboardClient() {
       activeMilestones: RawMilestone[];
     }>(`/sponsors/${user.id}/dashboard`)
       .then((raw) => {
+        if (generation !== fetchGeneration.current) return;
         const activeBounties = raw.activeBounties.map(adaptBounty);
         const repoCount = new Set(activeBounties.map((b) => `${b.org}/${b.repo}`)).size;
         setData({
@@ -93,6 +102,7 @@ export default function SponsorDashboardClient() {
         setIsLive(true);
       })
       .catch(() => {
+        if (generation !== fetchGeneration.current) return;
         // On error: keep data null so cards can show their error state.
         // Do NOT set values to 0 — that would be indistinguishable from a
         // real zero balance, which is a trust-eroding false signal for a sponsor.
