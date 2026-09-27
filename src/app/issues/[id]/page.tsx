@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { ShieldCheck, Clock, GitBranch, Milestone as MilestoneIcon } from "lucide-react";
 import { fetchBounty } from "@/lib/api";
 import { mockBounties } from "@/lib/mock-data";
-import { StatusBadge, DifficultyBadge, Badge } from "@/components/ui/Badge";
+import { DifficultyBadge, Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { BountyDescription } from "@/components/bounty/BountyDescription";
+import { LiveBountyStatus } from "@/components/bounty/LiveBountyStatus";
 import { formatCurrency, daysUntil, formatDaysUntil } from "@/lib/utils";
 import type { BountyStatus } from "@/types";
 import { IssueActions } from "./IssueActions";
@@ -82,7 +83,7 @@ export default async function IssueDetailPage({
         </p>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <StatusBadge status={bounty.status} />
+        <LiveBountyStatus bountyId={bounty.id} fallbackBounty={bounty} />
         <DifficultyBadge difficulty={bounty.difficulty} />
         <ul role="list" className="contents">
           {bounty.labels.map((label) => (

@@ -39,14 +39,20 @@ function logFetchError(path: string, kind: "network" | "http" | "parse", detail:
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       cache: "no-store",
       ...init,
       headers: { "Content-Type": "application/json", ...init?.headers },
+      signal: init?.signal ?? timeout,
     });
   } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      logFetchError(path, "network", "Request timed out");
+      throw new ApiUnavailableError(`Request to ${path} timed out`);
+    }
     logFetchError(path, "network", err instanceof Error ? err.message : String(err));
     throw new ApiUnavailableError(`Network error on ${path}`);
   }
