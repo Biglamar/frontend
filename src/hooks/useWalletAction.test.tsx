@@ -11,10 +11,15 @@ const mockUseWallet = useWallet as jest.Mock;
 function setWallet(overrides: Partial<ReturnType<typeof useWallet>> = {}) {
   mockUseWallet.mockReturnValue({
     address: null,
+    network: null,
     connecting: false,
+    error: null,
+    initializing: false,
     addressMismatch: false,
     networkMismatch: false,
+    linkState: "none",
     connect: jest.fn(),
+    disconnect: jest.fn(),
     getError: jest.fn(),
     ...overrides,
   });
@@ -70,5 +75,44 @@ describe("useWalletAction", () => {
     });
 
     expect(action).toHaveBeenCalledWith("GCONNECTED");
+  });
+});
+
+describe("useWalletAction — wallet still initializing (#456)", () => {
+  // `address` is null until WalletContext has read localStorage. A click in
+  // that window took the `address ?? await connect()` path and re-prompted
+  // Freighter for a wallet the user had already connected.
+  it("blocks rather than re-prompting for a wallet mid-hydration", async () => {
+    const connect = jest.fn();
+    setWallet({ initializing: true, connect });
+    const action = jest.fn();
+    const { result } = renderHook(() => useWalletAction());
+
+    let response: Awaited<ReturnType<ReturnType<typeof useWalletAction>["runWithWallet"]>>;
+    await act(async () => {
+      response = await result.current.runWithWallet(action, "Fallback message.");
+    });
+
+    expect(response!).toEqual({ ok: false, error: expect.stringContaining("Still checking") });
+    expect(connect).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("proceeds normally once initialization finishes", async () => {
+    setWallet({
+      initializing: false,
+      address: "GCACHED",
+      connect: jest.fn().mockResolvedValue("GCACHED"),
+    });
+    const action = jest.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useWalletAction());
+
+    await act(async () => {
+      await expect(
+        result.current.runWithWallet(action, "Fallback message."),
+      ).resolves.toEqual({ ok: true });
+    });
+
+    expect(action).toHaveBeenCalledWith("GCACHED");
   });
 });

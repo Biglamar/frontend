@@ -7,9 +7,11 @@ import { ActivityList } from "@/components/dashboard/ActivityList";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SampleDataChip } from "@/components/ui/DataSourceNotice";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { formatCurrency, sumMoney } from "@/lib/utils";
+import { t } from "@/lib/messages";
 import { PipelineBoard, ESCROW_LOCKED_EXCLUDED_STATUSES } from "./PipelineBoard";
 
 export const metadata = {
@@ -134,10 +136,25 @@ export default async function MaintainerDashboardPage() {
               </Card>
             ))}
             {needsReview.length === 0 && (
+              /* A maintainer with zero items to review has *finished*, not
+                 failed — the review queue draining is the success case. Toned
+                 as success with no CTA pushing more work at them, and the
+                 secondary action points at bounties they could open rather
+                 than at more reviews. */
               <EmptyState
                 icon={CheckCircle2}
-                title="All caught up"
-                description="No pull requests are waiting on your review right now."
+                tone="success"
+                size="sm"
+                title={t("empty.review.clear.title")}
+                description={t("empty.review.clear.description")}
+                secondaryAction={
+                  <Link
+                    href="/issues"
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                  >
+                    {t("empty.review.clear.cta")}
+                  </Link>
+                }
               />
             )}
           </div>
@@ -147,11 +164,7 @@ export default async function MaintainerDashboardPage() {
             <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
               Recent activity
             </h2>
-            {source === "mock" && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {source === "mock" && <SampleDataChip />}
           </div>
           <div className="mt-4">
             <ActivityList events={recentActivity.slice(0, 5)} />

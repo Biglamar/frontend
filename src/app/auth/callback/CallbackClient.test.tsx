@@ -2,7 +2,7 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CallbackClient } from "./CallbackClient";
 import { useAuth } from "@/context/AuthContext";
-import type { AuthUser } from "@/types";
+import type { AuthUser, UserRole } from "@/types";
 
 jest.mock("next/navigation", () => ({
   useSearchParams: jest.fn(),
@@ -21,14 +21,14 @@ const mockedUseAuth = useAuth as jest.MockedFunction<any>;
 const mockedUseSearchParams = useSearchParams as jest.MockedFunction<any>;
 const mockedUseRouter = useRouter as jest.Mock;
 
-function makeUser(roles: string[]): AuthUser {
+function makeUser(roles: UserRole[], stellarAddress: string | null = "GWALLET"): AuthUser {
   return {
     id: "1",
     username: "testuser",
     displayName: "Test User",
     avatarUrl: null,
-    roles: roles as AuthUser["roles"],
-    stellarAddress: null,
+    roles,
+    stellarAddress,
   };
 }
 
@@ -69,12 +69,12 @@ function createAsyncAuthMock(resolvedUser: AuthUser) {
   };
 }
 
-describe("CallbackClient — role-based redirect (issue #77)", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockedUseRouter.mockReturnValue({ replace: mockReplace });
-    mockedUseSearchParams.mockReturnValue(new URLSearchParams({ token: "jwt-token" }));
-  });
+describe("CallbackClient — role-based redirect (#77)", () => {
+  const SINGLE_ROLE_REDIRECTS: ReadonlyArray<readonly [UserRole[], string]> = [
+    [["maintainer"], "/dashboard/maintainer"],
+    [["sponsor"], "/dashboard/sponsor"],
+    [["contributor"], "/dashboard/contributor"],
+  ];
 
   it("redirects maintainer to /dashboard/maintainer after async login", async () => {
     const { getAuthValue } = createAsyncAuthMock(makeUser(["maintainer"]));
@@ -95,10 +95,7 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
 
     render(<CallbackClient />);
 
-    // Wait for login to resolve and trigger re-render
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/maintainer");
-    });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(expected));
   });
 
   it("redirects sponsor to /dashboard/sponsor after async login", async () => {
@@ -116,9 +113,9 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
 
     render(<CallbackClient />);
 
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/sponsor");
-    });
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard/maintainer"),
+    );
   });
 
   it("redirects contributor to /dashboard/contributor after async login", async () => {
@@ -136,9 +133,9 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
 
     render(<CallbackClient />);
 
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/contributor");
-    });
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard/contributor"),
+    );
   });
 
   it("prefers maintainer over sponsor when user has multiple roles", async () => {
@@ -160,15 +157,17 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
 
     render(<CallbackClient />);
 
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/maintainer");
-    });
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard/maintainer"),
+    );
+    expect(login).toHaveBeenCalledWith("jwt-token");
   });
+});
 
-  it("falls back to contributor when roles array is empty", async () => {
-    const user = makeUser([]);
+describe("CallbackClient — unfinished wallet link (#456)", () => {
+  it("returns to /connect when the resolved user has no payout wallet", async () => {
     mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(user),
+      login: jest.fn().mockResolvedValue(makeUser(["maintainer"], null)),
     });
     const { getAuthValue } = createAsyncAuthMock(makeUser([]));
     let currentUser: AuthUser | null = null;
@@ -184,40 +183,69 @@ describe("CallbackClient — role-based redirect (issue #77)", () => {
 
     render(<CallbackClient />);
 
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/contributor");
-    });
+    // /connect is the only page that can complete the link, and nothing in the
+    // dashboard nav links back to it — landing on a dashboard instead would
+    // strand the user with no way to finish.
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/connect"));
   });
 
   it("falls back to contributor when user remains null after login", async () => {
     // Test case where login succeeds but user is still null (no roles)
     mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(null),
+      login: jest.fn().mockResolvedValue(makeUser(["sponsor"], "GWALLET")),
     });
+
     render(<CallbackClient />);
 
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/contributor");
-    });
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard/sponsor"),
+    );
+    expect(mockReplace).not.toHaveBeenCalledWith("/connect");
   });
+});
 
-  it("uses the user returned by login, not a stale context value", async () => {
-    const user = makeUser(["maintainer"]);
-    mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(user),
-    });
+describe("CallbackClient — failure paths", () => {
+  it("surfaces an error instead of landing on a demo dashboard when login resolves null", async () => {
+    // The failure this guards: a transient backend error makes refresh()
+    // return null while the token stays valid. Redirecting anyway dropped the
+    // user into a dashboard whose `if (!user)` branch renders mock data as if
+    // it were theirs.
+    mockedUseAuth.mockReturnValue({ login: jest.fn().mockResolvedValue(null) });
+
     render(<CallbackClient />);
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/dashboard/maintainer");
-    });
-    // Verify login was called — the resolved user drives the redirect
-    expect(mockedUseAuth.mock.results[0].value.login).toHaveBeenCalledWith("jwt-token");
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /Could not complete sign-in/,
+      ),
+    );
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it("shows error when no token is present", () => {
+  it("shows an error when no token is present", async () => {
     mockedUseSearchParams.mockReturnValue(new URLSearchParams());
     mockedUseAuth.mockReturnValue({ login: jest.fn() });
+
     render(<CallbackClient />);
-    expect(screen.getByText(/No token was returned/)).toBeInTheDocument();
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /No token was returned by GitHub sign-in/,
+    );
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("strips the token from the URL before it can reach browser history (#9)", () => {
+    mockedUseAuth.mockReturnValue({ login: jest.fn().mockResolvedValue(makeUser([])) });
+    const replaceState = jest.spyOn(window.history, "replaceState");
+
+    render(<CallbackClient />);
+
+    // Rewrites the URL with no query string at all — the assertion is on the
+    // JWT being gone rather than on a specific pathname, since the test
+    // environment's location is not the callback route.
+    expect(replaceState).toHaveBeenCalled();
+    const rewritten = replaceState.mock.calls[0][2] as string;
+    expect(rewritten).not.toContain("token");
+    expect(rewritten).not.toContain("?");
   });
 });

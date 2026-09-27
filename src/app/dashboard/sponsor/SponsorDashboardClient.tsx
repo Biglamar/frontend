@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Wallet, Receipt, Lock, FolderGit2, Inbox } from "lucide-react";
+import { Wallet, Receipt, Lock, FolderGit2, Inbox, CheckCircle2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { ActivityList } from "@/components/dashboard/ActivityList";
 import { StatCard, type StatCardStatus } from "@/components/ui/StatCard";
 import { BarChart } from "@/components/ui/BarChart";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SampleDataChip } from "@/components/ui/DataSourceNotice";
+import { Button } from "@/components/ui/Button";
 import { BountyCard } from "@/components/bounty/BountyCard";
 import { Card } from "@/components/ui/Card";
 import { formatCurrency, subtractMoney } from "@/lib/utils";
+import { t } from "@/lib/messages";
 import { apiRequest } from "@/lib/api";
 import { adaptBounty, type RawBounty, type RawMilestone } from "@/lib/adapters";
 import {
@@ -111,6 +114,13 @@ export default function SponsorDashboardClient() {
   const budgetLocked = data?.budgetLocked;
   const repoCount = data?.repoCount;
 
+  /* Any money or repo history means this sponsor has funded before, so an
+     empty active list means "all settled" rather than "never started". */
+  const sponsorHasHistory =
+    (data?.totalSpent ?? 0) > 0 ||
+    (data?.budgetLocked ?? 0) > 0 ||
+    (data?.repoCount ?? 0) > 0;
+
   return (
     <DashboardShell
       role="sponsor"
@@ -183,11 +193,7 @@ export default function SponsorDashboardClient() {
         <Card>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Spend, last 8 weeks</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-6">
             <BarChart
@@ -200,11 +206,7 @@ export default function SponsorDashboardClient() {
         <Card>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Spend by repository</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-5 space-y-3">
             {sponsorSpendByRepo.map((r) => (
@@ -233,21 +235,43 @@ export default function SponsorDashboardClient() {
           <BountyCard key={bounty.id} bounty={bounty} />
         ))}
       </div>
-      {(data?.activeBounties?.length === 0) && (
-        <EmptyState
-          icon={Inbox}
-          title="No active bounties"
-          description="Fund an issue to see it appear here once it's live."
-        />
+      {data?.activeBounties?.length === 0 && (
+        /* Two genuinely different situations collapse into the same
+           "0 active bounties" count, and the previous single copy treated
+           both as "fund something", which is the wrong advice for a sponsor
+           whose entire portfolio has already been paid out:
+             - never funded anything   → needs a "fund your first" CTA
+             - everything has settled   → this is the success state, and
+                                         suggesting they fund more is noise */
+        sponsorHasHistory ? (
+          <EmptyState
+            icon={CheckCircle2}
+            tone="success"
+            className="md:col-span-2"
+            headingLevel="h3"
+            title={t("empty.sponsor.settled.title")}
+            description={t("empty.sponsor.settled.description")}
+          />
+        ) : (
+          <EmptyState
+            icon={Inbox}
+            tone="neutral"
+            className="md:col-span-2"
+            headingLevel="h3"
+            title={t("empty.sponsor.none.title")}
+            description={t("empty.sponsor.none.description")}
+            action={
+              <Link href="/issues">
+                <Button size="sm">{t("empty.sponsor.none.cta")}</Button>
+              </Link>
+            }
+          />
+        )
       )}
 
       <div className="mt-10 flex items-center gap-2">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Recent activity</h2>
-        {isLive && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-            Sample data
-          </span>
-        )}
+        {isLive && <SampleDataChip />}
       </div>
       <div className="mt-4">
         <ActivityList events={recentActivity.slice(0, 5)} />

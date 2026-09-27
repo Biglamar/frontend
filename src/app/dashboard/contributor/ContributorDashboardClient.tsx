@@ -10,9 +10,11 @@ import { StatCard, type StatCardStatus } from "@/components/ui/StatCard";
 import { BarChart } from "@/components/ui/BarChart";
 import { Tabs } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SampleDataChip } from "@/components/ui/DataSourceNotice";
 import { BountyCard } from "@/components/bounty/BountyCard";
 import { Card } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
+import { t } from "@/lib/messages";
 import { apiRequest, fetchBounties } from "@/lib/api";
 import {
   mockReputationProfiles,
@@ -197,11 +199,7 @@ export default function ContributorDashboardClient() {
         <Card>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Earnings, last 8 weeks</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-6">
             <BarChart
@@ -214,11 +212,7 @@ export default function ContributorDashboardClient() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Recent activity</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-4">
             <ActivityList events={recentActivity.slice(0, 4)} />
@@ -237,26 +231,41 @@ export default function ContributorDashboardClient() {
           onChange={setTab}
         />
       </div>
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div
+        role="tabpanel"
+        id={`tabpanel-${tab}`}
+        aria-labelledby={`tab-${tab}`}
+        className="mt-6 grid gap-4 md:grid-cols-2"
+      >
         {shownClaims.map((bounty) => (
           <BountyCard key={bounty.id} bounty={bounty} />
         ))}
       </div>
       {shownClaims.length === 0 && (
+        /* Both tabs are "start here" states, but they say different things:
+           no active claims is an invitation to pick up work, while nothing
+           completed yet is an explanation of what completion *means* — so the
+           copy differs and only the active tab gets a forward CTA. */
         <EmptyState
           icon={GitPullRequest}
-          title={tab === "active" ? "No active claims" : "Nothing completed yet"}
-          description={
+          tone="neutral"
+          className="md:col-span-2"
+          headingLevel="h3"
+          title={t(tab === "active" ? "empty.claims.active.title" : "empty.claims.completed.title")}
+          description={t(
             tab === "active"
-              ? "Claim a bounty from the list below to get started."
-              : "Completed and paid-out bounties will show up here."
-          }
+              ? "empty.claims.active.description"
+              : "empty.claims.completed.description",
+          )}
+          /* Both tabs are dead ends without a next step, so both get the same
+             forward CTA — only the surrounding copy differs. */
           action={
-            tab === "active" ? (
-              <a href="#open-bounties" className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
-                Browse open bounties
-              </a>
-            ) : undefined
+            <a
+              href="#open-bounties"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+            >
+              {t(tab === "active" ? "empty.claims.active.cta" : "empty.claims.completed.cta")}
+            </a>
           }
         />
       )}
@@ -264,8 +273,13 @@ export default function ContributorDashboardClient() {
       {/* "available" is every open bounty in whatever order the backend/mock
           data returns, sliced to the first 4 — no relevance scoring against
           this contributor's history/languages/orgs. "Open bounties" is the
-          honest label until real personalization exists (#239). */}
-      <h2 className="mt-12 text-xl font-semibold text-slate-900 dark:text-white">
+          honest label until real personalization exists (#239). The
+          `id="open-bounties"` is what the empty-state CTA above scrolls to;
+          without it that anchor pointed at nothing. */}
+      <h2
+        id="open-bounties"
+        className="mt-12 scroll-mt-24 text-xl font-semibold text-slate-900 dark:text-white"
+      >
         Open bounties
       </h2>
       <div className="mt-6 grid gap-4 md:grid-cols-2">

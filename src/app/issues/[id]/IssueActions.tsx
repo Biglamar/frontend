@@ -7,11 +7,12 @@ import { useAuth } from "@/context/AuthContext";
 import { useWalletAction } from "@/hooks/useWalletAction";
 import { apiPost, ApiRequestError } from "@/lib/api";
 import { formatCurrency, generateIdempotencyKey } from "@/lib/utils";
+import { ClaimButton } from "@/components/bounty/ClaimButton";
 import type { Bounty } from "@/types";
 
 export function IssueActions({ bounty }: { bounty: Bounty }) {
   const router = useRouter();
-  const { user } = useAuth();
+  useAuth();
   const { runWithWallet, connecting } = useWalletAction();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,27 +54,10 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     }
   }
 
-  async function handleClaim() {
-    setError(null);
-    setNotice(null);
-    if (!user) {
-      router.push("/connect");
-      return;
-    }
-    setPending(true);
-    try {
-      await apiPost(`/bounties/${bounty.id}/claim`, {
-        contributorId: user.id,
-        idempotencyKey: generateIdempotencyKey(),
-      });
-      setNotice("You've claimed this issue. Open a pull request to get started.");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
-    } finally {
-      setPending(false);
-    }
-  }
+  const handleClaimSuccess = () => {
+    setNotice("You've claimed this issue. Open a pull request to get started.");
+    router.refresh();
+  };
 
   async function handleRefund() {
     const confirmed = window.confirm(
@@ -106,9 +90,11 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
           </Button>
         )}
         {bounty.status === "funded" && (
-          <Button size="lg" onClick={handleClaim} loading={pending}>
-            {pending ? "Claiming..." : "Claim this issue"}
-          </Button>
+          <ClaimButton
+            bountyId={bounty.id}
+            fallbackBounty={bounty}
+            onClaimSuccess={handleClaimSuccess}
+          />
         )}
         {(bounty.status === "funded" || bounty.status === "claimed") && (
           <Button size="lg" variant="outline" onClick={handleRefund} loading={pending}>

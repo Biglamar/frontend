@@ -38,10 +38,24 @@ function BaseBadge({
   );
 }
 
+/** Human label per status. Replaces `status.replace("_", " ")`, which rendered
+ *  "in review" in lower case and only ever replaced the *first* underscore, so
+ *  a new multi-word status would leak its raw enum key to users. */
+const statusLabels: Record<BountyStatus, string> = {
+  open: "Open",
+  funded: "Funded",
+  claimed: "Claimed",
+  in_review: "In Review",
+  merged: "Merged",
+  paid: "Paid",
+  refunded: "Refunded",
+  expired: "Expired",
+};
+
 export function StatusBadge({ status }: { status: BountyStatus }) {
   return (
     <BaseBadge className={statusStyles[status]}>
-      {status.replace("_", " ")}
+      {statusLabels[status]}
     </BaseBadge>
   );
 }

@@ -5,7 +5,7 @@
  * TypeScript checks for exhaustiveness at compile time, but nothing
  * previously asserted the *rendered* label text or class per status/
  * difficulty at runtime (#212). Covers every BountyStatus and Difficulty
- * value, plus the "in_review" -> "in review" space transform.
+ * value, plus the status-key -> human-label mapping.
  */
 
 import React from "react";
@@ -26,22 +26,41 @@ const ALL_STATUSES: BountyStatus[] = [
 
 const ALL_DIFFICULTIES: Difficulty[] = ["beginner", "intermediate", "advanced", "expert"];
 
+/**
+ * Explicit expected label per status. Asserted against a literal map rather
+ * than `status.replace("_", " ")` so the test actually pins the copy: the old
+ * implementation produced lower-case "in review" here while
+ * components/bounty/BountyStatus.tsx independently produced "In Review" for
+ * the same enum, so one bounty showed two different labels in two places
+ * (#456). Both now render the same map.
+ */
+const STATUS_LABELS: Record<BountyStatus, string> = {
+  open: "Open",
+  funded: "Funded",
+  claimed: "Claimed",
+  in_review: "In Review",
+  merged: "Merged",
+  paid: "Paid",
+  refunded: "Refunded",
+  expired: "Expired",
+};
+
 describe("StatusBadge", () => {
   it.each(ALL_STATUSES)("renders the correct label for status %s", (status) => {
     render(<StatusBadge status={status} />);
-    const expectedLabel = status.replace("_", " ");
-    expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+    expect(screen.getByText(STATUS_LABELS[status])).toBeInTheDocument();
   });
 
-  it('renders "in review" (space, not underscore) for in_review', () => {
+  it('never leaks a raw enum key to the user', () => {
     render(<StatusBadge status="in_review" />);
-    expect(screen.getByText("in review")).toBeInTheDocument();
+    expect(screen.getByText("In Review")).toBeInTheDocument();
     expect(screen.queryByText("in_review")).not.toBeInTheDocument();
+    expect(screen.queryByText("in review")).not.toBeInTheDocument();
   });
 
   it.each(ALL_STATUSES)("applies a distinct ring/background class for status %s", (status) => {
     render(<StatusBadge status={status} />);
-    const el = screen.getByText(status.replace("_", " "));
+    const el = screen.getByText(STATUS_LABELS[status]);
     expect(el.className).toMatch(/ring-/);
   });
 });

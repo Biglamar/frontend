@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { fetchMilestones, fetchMaintenancePools } from "@/lib/api";
 import { mockMilestones, mockMaintenancePools } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/utils";
 import { MilestoneFundButton, PoolDepositButton } from "./MilestoneActions";
 import { MilestoneFundingProgress } from "./MilestoneFundingProgress";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Target, Droplets } from "lucide-react";
+import { t } from "@/lib/messages";
 
 const milestonesDescription =
   "Fund open source release milestones and recurring maintenance pools through MergeFi.";
@@ -33,6 +37,7 @@ export default async function MilestonesPage() {
   ]);
   const milestones = milestonesRes.data;
   const pools = poolsRes.data;
+  const source = milestonesRes.source === "mock" || poolsRes.source === "mock" ? "mock" : "live";
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
@@ -48,16 +53,29 @@ export default async function MilestonesPage() {
         resolves.
       </p>
 
+      {/* Neither section consumed `source` before, so a mock fallback here was
+          indistinguishable from live data. */}
+      {source === "mock" && <DataSourceNotice className="mt-6" />}
+
       <h2 className="mt-8 text-xl font-semibold text-slate-900 dark:text-white">
         Active milestones
       </h2>
 
+      {/* `md:col-span-2` so the empty state spans the grid instead of
+          occupying one narrow cell. */}
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {milestones.length === 0 ? (
           <EmptyState
             icon={Target}
-            title="No milestones yet"
-            description="Milestones will appear here once sponsors create them for open source releases."
+            tone="neutral"
+            className="md:col-span-2"
+            title={t("empty.milestones.none.title")}
+            description={t("empty.milestones.none.description")}
+            action={
+              <Link href="/connect">
+                <Button size="sm">{t("empty.milestones.none.cta")}</Button>
+              </Link>
+            }
           />
         ) : (
           milestones.map((m) => {
@@ -107,8 +125,15 @@ export default async function MilestonesPage() {
         {pools.length === 0 ? (
           <EmptyState
             icon={Droplets}
-            title="No maintenance pools yet"
-            description="Maintenance pools will appear here once sponsors set them up for ongoing upkeep."
+            tone="neutral"
+            className="md:col-span-2"
+            title={t("empty.pools.none.title")}
+            description={t("empty.pools.none.description")}
+            action={
+              <Link href="/connect">
+                <Button size="sm">{t("empty.pools.none.cta")}</Button>
+              </Link>
+            }
           />
         ) : (
           pools.map((pool) => (

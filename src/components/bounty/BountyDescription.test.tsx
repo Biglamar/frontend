@@ -61,12 +61,20 @@ describe("BountyDescription — content fidelity", () => {
     expect(screen.getByText("third").closest("li")).toBeInTheDocument();
   });
 
-  it("renders a blockquote with left-border styling", () => {
+  it("renders a blockquote with a logical border on the inline-start edge", () => {
+    // `border-s-*` / `ps-*` rather than `border-l-*` / `pl-*` (#456). The
+    // border sits on the blockquote's inline-start edge, which is the correct
+    // semantic — a physical left border lands on the wrong side of the bar
+    // once the document direction is right-to-left. This renderer handles
+    // untrusted third-party issue Markdown, so it is the highest-RTL-risk
+    // component in the app.
     render(<BountyDescription description={"> quoted text"} />);
 
     const blockquote = screen.getByText("quoted text").closest("blockquote");
     expect(blockquote).toBeInTheDocument();
-    expect(blockquote?.className).toContain("border-l-2");
+    expect(blockquote?.className).toContain("border-s-2");
+    expect(blockquote?.className).toContain("ps-4");
+    expect(blockquote?.className).not.toMatch(/border-l-|pl-4/);
     expect(blockquote?.className).toContain("italic");
   });
 
