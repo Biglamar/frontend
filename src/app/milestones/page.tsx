@@ -79,6 +79,13 @@ export default async function MilestonesPage() {
           />
         ) : (
           milestones.map((m) => {
+            // Fundable remainder for the amount input's default and cap. A
+            // milestone with no budget yet (budget <= 0) is left uncapped
+            // rather than reported as fully funded — "remaining 0" would
+            // disable the button on exactly the milestones that most need
+            // their first contribution.
+            const remainingBudget =
+              m.budget > 0 ? Math.max(m.budget - m.distributed, 0) : undefined;
             return (
               <Card key={m.id}>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -98,6 +105,8 @@ export default async function MilestonesPage() {
                 <MilestoneFundButton
                   milestoneId={m.id}
                   milestoneName={m.name}
+                  remainingBudget={remainingBudget}
+                  asset={m.asset}
                 />
               </Card>
             );

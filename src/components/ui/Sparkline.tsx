@@ -1,22 +1,33 @@
+/**
+ * Sparkline — a tiny decorative trend line drawn with two polylines.
+ *
+ * It used to be `aria-hidden="true"` with no accessible equivalent at all, so
+ * it conveyed nothing to a screen reader while sitting right next to a
+ * financial figure. It is now a labelled image whose name summarises the
+ * trend (length, direction, first/last/min/max) — enough for a non-sighted
+ * user to know the shape of the data rather than just "there is a line here".
+ *
+ * `label` is passed by the caller (StatCard forwards its own stat label) so
+ * the announcement names what is trending, e.g. "Earnings: 8 points, trending
+ * up from 12 to 31". Without it the summary is still accurate, just less
+ * specific.
+ */
 export function Sparkline({
   data,
   width = 96,
   height = 32,
   className,
-  mirrored = false,
+  label,
+  formatValue,
 }: {
   data: number[];
   width?: number;
   height?: number;
   className?: string;
-  /**
-   * Flip the trend horizontally. SVG does not inherit `dir`, so a
-   * right-to-left viewer would otherwise see the line running in the opposite
-   * time direction to the axis it sits beside — reading "declining" as
-   * "growing". Opt-in rather than reading `dir` here so the component stays
-   * usable in isolation and in tests.
-   */
-  mirrored?: boolean;
+  /** What the trend represents, e.g. "Earnings". */
+  label?: string;
+  /** Overrides how individual values are read out. */
+  formatValue?: (v: number) => string;
 }) {
   if (data.length < 2) return null;
   const max = Math.max(...data);
@@ -36,26 +47,54 @@ export function Sparkline({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       className={className}
-      aria-hidden="true"
+      role="img"
+      aria-label={describeTrend(data, label, formatValue)}
       preserveAspectRatio="none"
     >
-      {/* `transform` on the root <svg> mirrors every child in one place —
-          doing it on the parent avoids re-deriving the point coordinates. */}
-      <g transform={mirrored ? `translate(${width},0) scale(-1,1)` : undefined}>
-        <polyline
-          points={areaPoints}
-          fill="currentColor"
-          className="opacity-10"
-        />
-        <polyline
-          points={points}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </g>
+      <polyline
+        points={areaPoints}
+        fill="currentColor"
+        className="opacity-10"
+        aria-hidden="true"
+      />
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      />
     </svg>
   );
+}
+
+/**
+ * Builds the sparkline's accessible name. Kept exported for direct testing —
+ * the wording is the accessible name, so it is behaviour, not formatting.
+ */
+export function describeTrend(
+  data: number[],
+  label?: string,
+  formatValue?: (v: number) => string,
+): string {
+  const format = formatValue ?? ((v: number) => String(v));
+  const first = data[0];
+  const last = data[data.length - 1];
+  const direction = last > first ? "up" : last < first ? "down" : "flat";
+  const subject = label ? `${label}: ` : "";
+  return (
+    `${subject}${data.length} data points, trending ${direction} ` +
+    `from ${format(first)} to ${format(last)}, ` +
+    `range ${format(minOf(data))} to ${format(maxOf(data))}`
+  );
+}
+
+function minOf(data: number[]): number {
+  return Math.min(...data);
+}
+
+function maxOf(data: number[]): number {
+  return Math.max(...data);
 }

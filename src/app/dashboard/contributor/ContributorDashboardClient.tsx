@@ -264,7 +264,11 @@ export default function ContributorDashboardClient() {
             {isLive && <SampleDataChip />}
           </div>
           <div className="mt-6">
-            <BarChart data={earningsChartData} formatValue={(v) => formatCurrency(v)} />
+            <BarChart
+              data={earningsChartData}
+              formatValue={(v) => formatCurrency(v)}
+              title="Earnings, last 8 weeks"
+            />
           </div>
         </Card>
         <div>

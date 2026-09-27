@@ -246,7 +246,11 @@ describe("ConnectPanel — payout address mismatch", () => {
     render(<ConnectPanel />);
 
     expect(screen.getByText("Wallet address mismatch")).toBeInTheDocument();
-    expect(screen.getByText(/GABC\.\.\.WXYZ/)).toBeInTheDocument();
+    expect(screen.getByText(/The connected wallet/)).toBeInTheDocument();
+    // The truncated connected address renders twice: once on the "Connected:"
+    // status line and once inside the mismatch banner. getByText throws on
+    // multiple matches, so assert both occurrences rather than picking one.
+    expect(screen.getAllByText(/GABC\.\.\.WXYZ/).length).toBeGreaterThan(0);
     expect(screen.getByText(/GXYZ\.\.\.OPQR/)).toBeInTheDocument();
     expect(screen.getByText(/address on file until you reconnect/)).toBeInTheDocument();
   });

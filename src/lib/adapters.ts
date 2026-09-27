@@ -103,7 +103,17 @@ export interface RawBounty {
  * option to hydrate), so it is present on live responses today regardless of
  * that gap.
  */
-export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { valid: boolean; sum: number; message?: string } } {
+/**
+ * Returns the domain `Bounty` type. `teamSplitsValid` is declared on
+ * `Bounty` itself (src/types/bounty.ts) rather than intersected onto this
+ * function's return type: an adapter-local intersection is invisible to any
+ * consumer typed as the plain `Bounty` (fetchBounties returns `Bounty[]`, so
+ * every caller narrowed to that type structurally lost access to the field —
+ * the type-level half of the "computed but never consumed" bug, where
+ * adaptBounty computed and attached a validity flag that no component could
+ * read).
+ */
+export function adaptBounty(raw: RawBounty): Bounty {
   const splits = raw.team?.splits?.map(
     (split): TeamSplit => ({
       role: split.role ?? "Contributor",
@@ -194,6 +204,13 @@ export interface RawReputationSnapshot {
 export interface RawUserProfile {
   username: string;
   avatarUrl: string | null;
+  /**
+   * mergefi-backend has no such field on its user entity yet. Read
+   * defensively so this is a no-op until it lands, and so an explicitly
+   * non-public profile can never be indexed by omission: anything other than
+   * `true` means "not indexable" (see src/lib/seo-policy.ts).
+   */
+  isProfilePublic?: boolean | null;
 }
 
 export function adaptReputation(
@@ -219,5 +236,6 @@ export function adaptReputation(
           .map(([lang]) => lang)
       : [],
     organizations: snapshot?.orgsContributedTo ?? [],
+    indexable: user.isProfilePublic === true,
   };
 }

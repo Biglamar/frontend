@@ -22,6 +22,7 @@ import {
   type RawReputationSnapshot,
   type RawUserProfile,
 } from "./adapters";
+import type { Bounty } from "@/types";
 
 function rawBounty(overrides: Partial<RawBounty> = {}): RawBounty {
   return {
@@ -142,6 +143,7 @@ describe("adaptBounty — field coverage audit (#86)", () => {
     "claimedById",
     "sponsorId",
     "teamSplits",
+    "teamSplitsValid",
     "milestoneId",
     "escrowId",
   ] as const;
@@ -167,6 +169,52 @@ describe("adaptBounty — field coverage audit (#86)", () => {
     for (const field of EXPECTED_BOUNTY_FIELDS) {
       expect(bounty[field]).not.toBeUndefined();
     }
+  });
+});
+
+/**
+ * teamSplitsValid is declared on the Bounty type itself and read by
+ * IssueDetailPage. It used to be intersected onto adaptBounty's return type
+ * only, so consumers typed as plain `Bounty` (fetchBounties returns Bounty[])
+ * had no access to it at the type level (#419).
+ */
+describe("adaptBounty — teamSplitsValid", () => {
+  it("surfaces the flag through the plain Bounty type, not an adapter-local one", () => {
+    const bounty: Bounty = adaptBounty(
+      rawBounty({
+        team: { splits: [{ role: "Lead", percentage: "60" }, { role: "Dev", percentage: "40" }] },
+      }),
+    );
+
+    expect(bounty.teamSplitsValid).toEqual({ valid: true, sum: 100 });
+  });
+
+  it("reports invalid splits with validateTeamSplits' message", () => {
+    const bounty: Bounty = adaptBounty(
+      rawBounty({
+        team: { splits: [{ role: "Lead", percentage: "50" }, { role: "Dev", percentage: "35" }] },
+      }),
+    );
+
+    expect(bounty.teamSplitsValid).toEqual({
+      valid: false,
+      sum: 85,
+      message: "Team splits sum to 85.00% (expected 100%)",
+    });
+  });
+
+  it("leaves the flag undefined for a bounty with no team", () => {
+    const bounty: Bounty = adaptBounty(rawBounty({ team: null }));
+
+    expect(bounty.teamSplits).toBeUndefined();
+    expect(bounty.teamSplitsValid).toBeUndefined();
+  });
+
+  it("treats an empty splits array as valid with a zero sum, not as invalid", () => {
+    const bounty: Bounty = adaptBounty(rawBounty({ team: { splits: [] } }));
+
+    expect(bounty.teamSplits).toEqual([]);
+    expect(bounty.teamSplitsValid).toEqual({ valid: true, sum: 0 });
   });
 });
 
@@ -281,6 +329,21 @@ describe("adaptReputation", () => {
     const profile = adaptReputation(rawUserProfile(), rawReputationSnapshot());
     expect(profile.completionRate).toBeCloseTo(0.94);
     expect(profile.onTimeDeliveryRate).toBeCloseTo(0.88);
+  });
+
+  // The search-engine opt-in mapped from the backend's `isProfilePublic`
+  // (see src/lib/seo-policy.ts). Only an explicit `true` may enable indexing.
+  it.each([
+    [true, true],
+    [false, false],
+    [null, false],
+    [undefined, false],
+  ])("maps isProfilePublic %p to indexable %p", (isProfilePublic, expected) => {
+    const profile = adaptReputation(
+      rawUserProfile({ isProfilePublic }),
+      rawReputationSnapshot(),
+    );
+    expect(profile.indexable).toBe(expected);
   });
 
   it("returns zeroed fields when there is no snapshot", () => {

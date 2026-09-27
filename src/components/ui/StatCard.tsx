@@ -277,7 +277,10 @@ export function StatCard({
           in this row (#207). */}
       {sparkline && sparkline.length >= 2 && (
         <div data-testid="statcard-sparkline" className="text-indigo-500 dark:text-indigo-400">
-          <Sparkline data={sparkline} mirrored={isRTLLocale(locale)} />
+          {/* The card's own label becomes the sparkline's accessible name, so
+              the trend is announced as "Earnings: 8 data points, trending up
+              from …" rather than as an unlabelled graphic. */}
+          <Sparkline data={sparkline} label={label} />
         </div>
       )}
     </div>,

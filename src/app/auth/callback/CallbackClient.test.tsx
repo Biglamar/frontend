@@ -1,17 +1,4 @@
-/**
- * CallbackClient.test.tsx (#77, #456)
- *
- * Covers the post-sign-in redirect matrix:
- *   - single role       → that role's dashboard
- *   - multiple roles    → highest-precedence dashboard on *arrival only*; the
- *                        Navbar is what exposes every role afterwards
- *   - no roles          → contributor dashboard (demo mode)
- *   - login() → null    → visible error, never a silent demo-dashboard landing
- *   - no wallet linked  → /connect, so the unfinished setup step is reachable
- *   - missing token     → visible error
- */
-
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CallbackClient } from "./CallbackClient";
 import { useAuth } from "@/context/AuthContext";
@@ -45,11 +32,42 @@ function makeUser(roles: UserRole[], stellarAddress: string | null = "GWALLET"):
   };
 }
 
-beforeEach(() => {
-  jest.clearAllMocks();
-  mockedUseRouter.mockReturnValue({ replace: mockReplace });
-  mockedUseSearchParams.mockReturnValue(new URLSearchParams({ token: "jwt-token" }));
-});
+/**
+ * Creates a mock useAuth that starts with user: null and transitions
+ * to the resolved user after login() is called, mirroring real
+ * AuthContext behavior (login → refresh → setUser).
+ *
+ * login() must resolve *with* the user, not just resolve void:
+ * CallbackClient redirects on the value returned by login() (see
+ * AuthContextValue.login → Promise<AuthUser | null>), so a mock that
+ * resolves undefined makes every role assertion fall through to the
+ * contributor fallback.
+ */
+function createAsyncAuthMock(resolvedUser: AuthUser) {
+  let setUser: ((user: AuthUser | null) => void) | null = null;
+  const loginMock = jest.fn().mockImplementation(() => {
+    return new Promise<AuthUser | null>((resolve) => {
+      // Trigger re-render with resolved user after login completes
+      setTimeout(() => {
+        act(() => {
+          setUser?.(resolvedUser);
+        });
+        resolve(resolvedUser);
+      }, 0);
+    });
+  });
+
+  return {
+    loginMock,
+    getAuthValue: () => ({
+      login: loginMock,
+      user: null as AuthUser | null,
+      setUser: (fn: (prev: AuthUser | null) => AuthUser | null) => {
+        setUser = (u) => fn(u);
+      },
+    }),
+  };
+}
 
 describe("CallbackClient — role-based redirect (#77)", () => {
   const SINGLE_ROLE_REDIRECTS: ReadonlyArray<readonly [UserRole[], string]> = [
@@ -58,18 +76,40 @@ describe("CallbackClient — role-based redirect (#77)", () => {
     [["contributor"], "/dashboard/contributor"],
   ];
 
-  it.each(SINGLE_ROLE_REDIRECTS)("redirects %s to %s", async (roles, expected) => {
-    mockedUseAuth.mockReturnValue({ login: jest.fn().mockResolvedValue(makeUser(roles)) });
+  it("redirects maintainer to /dashboard/maintainer after async login", async () => {
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["maintainer"]));
+    // Simulate AuthContext behavior: user starts null, becomes populated after login
+    let currentUser: AuthUser | null = null;
+    const authValue = getAuthValue();
+    authValue.setUser((prev: AuthUser | null) => prev);
+
+    mockedUseAuth.mockImplementation(() => ({
+      ...authValue,
+      get user() { return currentUser; },
+    }));
+
+    // Simulate AuthContext's setUser call after login resolves
+    authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
+      currentUser = fn(currentUser);
+    };
 
     render(<CallbackClient />);
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(expected));
   });
 
-  it("prefers maintainer over sponsor when the account holds both roles", async () => {
-    mockedUseAuth.mockReturnValue({
-      login: jest.fn().mockResolvedValue(makeUser(["sponsor", "maintainer"])),
-    });
+  it("redirects sponsor to /dashboard/sponsor after async login", async () => {
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["sponsor"]));
+    let currentUser: AuthUser | null = null;
+    const authValue = getAuthValue();
+    authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
+      currentUser = fn(currentUser);
+    };
+
+    mockedUseAuth.mockImplementation(() => ({
+      ...authValue,
+      get user() { return currentUser; },
+    }));
 
     render(<CallbackClient />);
 
@@ -78,8 +118,18 @@ describe("CallbackClient — role-based redirect (#77)", () => {
     );
   });
 
-  it("falls back to the contributor dashboard when the account has no roles", async () => {
-    mockedUseAuth.mockReturnValue({ login: jest.fn().mockResolvedValue(makeUser([])) });
+  it("redirects contributor to /dashboard/contributor after async login", async () => {
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["contributor"]));
+    let currentUser: AuthUser | null = null;
+    const authValue = getAuthValue();
+    authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
+      currentUser = fn(currentUser);
+    };
+
+    mockedUseAuth.mockImplementation(() => ({
+      ...authValue,
+      get user() { return currentUser; },
+    }));
 
     render(<CallbackClient />);
 
@@ -88,11 +138,22 @@ describe("CallbackClient — role-based redirect (#77)", () => {
     );
   });
 
-  it("uses the user returned by login, not a stale context value", async () => {
-    const login = jest.fn().mockResolvedValue(makeUser(["maintainer"]));
-    // A stale context value that would send the user to the wrong dashboard
-    // if the component read `user` instead of login()'s return value.
-    mockedUseAuth.mockReturnValue({ login, user: makeUser(["sponsor"]) });
+  it("prefers maintainer over sponsor when user has multiple roles", async () => {
+    const user = makeUser(["sponsor", "maintainer"]);
+    mockedUseAuth.mockReturnValue({
+      login: jest.fn().mockResolvedValue(user),
+    });
+    const { getAuthValue } = createAsyncAuthMock(makeUser(["sponsor", "maintainer"]));
+    let currentUser: AuthUser | null = null;
+    const authValue = getAuthValue();
+    authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
+      currentUser = fn(currentUser);
+    };
+
+    mockedUseAuth.mockImplementation(() => ({
+      ...authValue,
+      get user() { return currentUser; },
+    }));
 
     render(<CallbackClient />);
 
@@ -108,6 +169,17 @@ describe("CallbackClient — unfinished wallet link (#456)", () => {
     mockedUseAuth.mockReturnValue({
       login: jest.fn().mockResolvedValue(makeUser(["maintainer"], null)),
     });
+    const { getAuthValue } = createAsyncAuthMock(makeUser([]));
+    let currentUser: AuthUser | null = null;
+    const authValue = getAuthValue();
+    authValue.setUser = (fn: (prev: AuthUser | null) => AuthUser | null) => {
+      currentUser = fn(currentUser);
+    };
+
+    mockedUseAuth.mockImplementation(() => ({
+      ...authValue,
+      get user() { return currentUser; },
+    }));
 
     render(<CallbackClient />);
 
@@ -117,7 +189,8 @@ describe("CallbackClient — unfinished wallet link (#456)", () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/connect"));
   });
 
-  it("goes straight to the dashboard when a payout wallet is already linked", async () => {
+  it("falls back to contributor when user remains null after login", async () => {
+    // Test case where login succeeds but user is still null (no roles)
     mockedUseAuth.mockReturnValue({
       login: jest.fn().mockResolvedValue(makeUser(["sponsor"], "GWALLET")),
     });

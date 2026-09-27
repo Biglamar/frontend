@@ -71,14 +71,7 @@ export function Navbar() {
             <div className="group relative">
               <button
                 aria-haspopup="menu"
-                // A multi-role account gets an explicit explanation rather
-                // than a menu that silently happens to contain two entries.
-                title={
-                  orderedRoles.length > 1
-                    ? t("nav.roles.multiLabel", { count: orderedRoles.length })
-                    : messages["nav.dashboards"]
-                }
-                className="flex items-center gap-1 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:hover:text-white"
+                className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
               >
                 {messages["nav.dashboards"]}
                 {orderedRoles.length > 1 && (
@@ -159,8 +152,8 @@ export function Navbar() {
               </Link>
               <button
                 onClick={logout}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                title={messages["nav.signOut"]}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                title="Sign out"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
               </button>
