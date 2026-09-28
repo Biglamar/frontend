@@ -9,7 +9,18 @@ import { Button } from "@/components/ui/Button";
 import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
 import { formatInteger } from "@/lib/utils";
 import { messages, t } from "@/lib/messages";
-import type { Bounty } from "@/types";
+import {
+  applyBountyQuery,
+  buildIssuesHref,
+  isFilterActive,
+  parseBountyQuery,
+  SORT_LABELS,
+  SORT_VALUES,
+  STATUS_VALUES,
+  DIFFICULTY_VALUES,
+  ASSET_VALUES,
+  type RawSearchParams,
+} from "@/lib/bounty-query";
 
 const issuesDescription =
   "Browse paid, escrow-backed GitHub issues funded through MergeFi and ready for contributors.";
@@ -37,32 +48,34 @@ const STATUS_FILTERS = [
   { value: "all", label: "All" },
   { value: "open", label: "Open" },
   { value: "in_review", label: "In review" },
-] as const;
+] as const satisfies readonly { value: (typeof STATUS_VALUES)[number]; label: string }[];
 
-type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+const DIFFICULTY_LABELS: Record<(typeof DIFFICULTY_VALUES)[number], string> = {
+  all: "Any difficulty",
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+  expert: "Expert",
+};
 
-function coerceStatusFilter(raw: string | string[] | undefined): StatusFilter {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return STATUS_FILTERS.some((f) => f.value === value) ? (value as StatusFilter) : "all";
-}
-
-function applyStatusFilter(bounties: Bounty[], filter: StatusFilter): Bounty[] {
-  if (filter === "all") return bounties;
-  return bounties.filter((b) => b.status === filter);
-}
+const ASSET_LABELS: Record<(typeof ASSET_VALUES)[number], string> = {
+  all: "Any asset",
+  USDC: "USDC",
+  XLM: "XLM",
+};
 
 export default async function IssuesPage({
   searchParams,
 }: {
   // Next 16 App Router: searchParams is a promise on server components.
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: Promise<RawSearchParams>;
 }) {
   const params = await searchParams;
-  const status = coerceStatusFilter(params.status);
-  const filterActive = status !== "all";
+  const query = parseBountyQuery(params);
+  const filterActive = isFilterActive(query);
 
-  const { data: bounties, source } = await fetchBounties(mockBounties);
-  const visible = applyStatusFilter(bounties, status);
+  const { data: bounties, source } = await fetchBounties(mockBounties, query);
+  const { items: visible, page, totalPages, filteredCount } = applyBountyQuery(bounties, query);
   const total = bounties.length;
 
   return (
@@ -87,14 +100,14 @@ export default async function IssuesPage({
           the other. */}
       {source === "mock" && <DataSourceNotice className="mb-6" />}
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <span className="text-sm text-slate-500 dark:text-slate-400">Status:</span>
         {STATUS_FILTERS.map((f) => {
-          const active = f.value === status;
+          const active = f.value === query.status;
           return (
             <Link
               key={f.value}
-              href={f.value === "all" ? "/issues" : `/issues?status=${f.value}`}
+              href={buildIssuesHref(params, { status: f.value === "all" ? undefined : f.value })}
               aria-current={active ? "true" : undefined}
               className={
                 active
@@ -107,9 +120,105 @@ export default async function IssuesPage({
           );
         })}
         <span className="ms-auto text-sm text-slate-500 dark:text-slate-400">
-          {formatInteger(visible.length)} of {formatInteger(total)}
+          {formatInteger(filteredCount)} of {formatInteger(total)}
         </span>
       </div>
+
+      {/* Difficulty/asset/reward-range/sort are exposed as a plain GET form
+          rather than client-side state — every combination stays a shareable,
+          bookmarkable URL and the page works with JavaScript disabled. The
+          hidden `status` field carries the pill selection above through the
+          same submit, since HTML forms only send their own named fields. */}
+      <form
+        method="get"
+        action="/issues"
+        className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/40"
+      >
+        {query.status !== "all" && <input type="hidden" name="status" value={query.status} />}
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+          Difficulty
+          <select
+            name="difficulty"
+            defaultValue={query.difficulty}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          >
+            {DIFFICULTY_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {DIFFICULTY_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+          Asset
+          <select
+            name="asset"
+            defaultValue={query.asset}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          >
+            {ASSET_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {ASSET_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+          Min reward
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            name="minReward"
+            defaultValue={query.minReward ?? ""}
+            placeholder="0"
+            className="w-24 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+          Max reward
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            name="maxReward"
+            defaultValue={query.maxReward ?? ""}
+            placeholder="Any"
+            className="w-24 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+          Sort by
+          <select
+            name="sort"
+            defaultValue={query.sort}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          >
+            {SORT_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {SORT_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <Button type="submit" size="sm">
+          Apply filters
+        </Button>
+        {filterActive && (
+          <Link
+            href="/issues"
+            className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Clear all
+          </Link>
+        )}
+      </form>
 
       {visible.length === 0 ? (
         filterActive ? (
@@ -154,6 +263,41 @@ export default async function IssuesPage({
               <BountyCard key={bounty.id} bounty={bounty} />
             ))}
           </div>
+
+          {totalPages > 1 && (
+            <nav
+              aria-label="Bounty board pages"
+              className="mt-8 flex items-center justify-center gap-4"
+            >
+              <Link
+                href={buildIssuesHref(params, { page: String(Math.max(1, page - 1)) })}
+                aria-disabled={page <= 1}
+                className={
+                  page <= 1
+                    ? "pointer-events-none rounded-md px-3 py-1.5 text-sm text-slate-300 dark:text-slate-700"
+                    : "rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                }
+              >
+                Previous
+              </Link>
+              <span className="text-sm text-slate-500 dark:text-slate-400">
+                Page {formatInteger(page)} of {formatInteger(totalPages)}
+              </span>
+              <Link
+                href={buildIssuesHref(params, {
+                  page: String(Math.min(totalPages, page + 1)),
+                })}
+                aria-disabled={page >= totalPages}
+                className={
+                  page >= totalPages
+                    ? "pointer-events-none rounded-md px-3 py-1.5 text-sm text-slate-300 dark:text-slate-700"
+                    : "rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                }
+              >
+                Next
+              </Link>
+            </nav>
+          )}
         </>
       )}
     </div>
