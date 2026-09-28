@@ -12,6 +12,7 @@ import {
   type RawUserProfile,
 } from "./adapters";
 import type { Bounty, Milestone, MaintenancePool, ReputationProfile } from "@/types";
+import { buildBountyQueryString, type BountyQuery } from "./bounty-query";
 
 export class ApiUnavailableError extends Error {}
 
@@ -173,9 +174,21 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
  * into the flat shapes the UI renders, falling back to mock data (already in
  * the target shape) when the backend is unreachable.
  */
-export async function fetchBounties(fallback: Bounty[]): Promise<FetchResult<Bounty[]>> {
+/**
+ * `query`, if given, is forwarded to the backend as query params (#28) so
+ * this is ready for server-side filtering once `/bounties` supports it —
+ * today the backend ignores unknown params and returns the full unfiltered
+ * collection, which callers must still run through
+ * `applyBountyQuery`/`filterBounties` themselves (see src/lib/bounty-query.ts)
+ * to get correct behavior against both live and mock-fallback data.
+ */
+export async function fetchBounties(
+  fallback: Bounty[],
+  query?: BountyQuery,
+): Promise<FetchResult<Bounty[]>> {
+  const qs = query ? buildBountyQueryString(query) : "";
   try {
-    const raw = await request<RawBounty[]>("/bounties");
+    const raw = await request<RawBounty[]>(`/bounties${qs}`);
     return { data: raw.map(adaptBounty), source: "live" };
   } catch {
     return { data: fallback, source: "mock" };

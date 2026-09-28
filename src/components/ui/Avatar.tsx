@@ -1,8 +1,29 @@
+"use client";
+
 import Image from "next/image";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 function seedToUrl(seed: string) {
   return `https://api.dicebear.com/9.x/identicon/svg?seed=${encodeURIComponent(seed)}&backgroundType=gradientLinear`;
+}
+
+/**
+ * Must match next.config.ts's `images.remotePatterns` — the only hosts an
+ * avatar `src` is ever allowed to resolve to (#20). Backend `avatarUrl` is
+ * typed only as `string | null`, not validated as a safe image URL, so a
+ * `javascript:`/`data:` scheme or an unexpected third-party host must be
+ * rejected here rather than trusted through to `<Image>`.
+ */
+const ALLOWED_AVATAR_HOSTS = new Set(["avatars.githubusercontent.com", "api.dicebear.com"]);
+
+function isSafeAvatarUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ALLOWED_AVATAR_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function Avatar({
@@ -16,13 +37,27 @@ export function Avatar({
   size?: number;
   className?: string;
 }) {
+  const fallback = seedToUrl(seed);
+  const requested = src && isSafeAvatarUrl(src) ? src : fallback;
+
+  // Falls back to the dicebear identicon on a real load failure (404,
+  // unreachable host, ...) in addition to the safety check above. Tracking
+  // the specific src that errored — not a plain boolean — means a later
+  // render with a *different* `src` prop (e.g. the user updates their GitHub
+  // avatar) retries instead of staying stuck on the old fallback, while a
+  // repeat failure of the same src stays on the fallback instead of
+  // retrying it every render.
+  const [erroredSrc, setErroredSrc] = useState<string | null>(null);
+  const resolved = erroredSrc === requested ? fallback : requested;
+
   return (
     <Image
-      src={src ?? seedToUrl(seed)}
+      src={resolved}
       alt={seed}
       width={size}
       height={size}
-      unoptimized={!src || src.startsWith("https://api.dicebear.com")}
+      unoptimized={resolved.startsWith("https://api.dicebear.com")}
+      onError={() => setErroredSrc(requested)}
       className={cn(
         "rounded-full border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800",
         className,
