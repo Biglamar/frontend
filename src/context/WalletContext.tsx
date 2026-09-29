@@ -13,6 +13,7 @@ import {
   connectWallet as freighterConnect,
   getActiveFreighterAddress,
   checkNetworkMismatch,
+  signOwnershipMessage,
 } from "@/lib/wallet";
 import { apiRequest } from "@/lib/api";
 import { STELLAR_NETWORK } from "@/lib/config";
@@ -68,6 +69,14 @@ interface WalletContextValue {
   recheckNetworkMismatch: () => Promise<boolean>;
   /** How durable the current connection is. See {@link WalletLinkState}. */
   linkState: WalletLinkState;
+  /**
+   * Set when Freighter's account differs from the address already linked to
+   * the profile. Nothing is re-linked (or even adopted locally) until the
+   * user calls `confirmRelink()`; `cancelRelink()` discards it (#32).
+   */
+  pendingRelinkAddress: string | null;
+  confirmRelink: () => Promise<string | null>;
+  cancelRelink: () => void;
   connect: () => Promise<string | null>;
   disconnect: () => void;
   /**
@@ -82,6 +91,13 @@ interface WalletContextValue {
   getError: () => string | null;
 }
 
+/** Challenge issued by `POST /users/:id/stellar-address/challenge`. */
+interface OwnershipChallenge {
+  /** Exact text to sign. Server-built: embeds domain, address, nonce, expiry. */
+  message: string;
+  nonce: string;
+}
+
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
@@ -93,6 +109,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [addressMismatch, setAddressMismatch] = useState(false);
   const [networkMismatch, setNetworkMismatch] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [pendingRelinkAddress, setPendingRelinkAddress] = useState<
+    string | null
+  >(null);
   const errorRef = useRef<string | null>(null);
   const updateError = useCallback((message: string | null) => {
     errorRef.current = message;
@@ -194,36 +213,104 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, authLoading]);
 
-  const connect = useCallback(async () => {
-    updateError(null);
-    setConnecting(true);
+  // #32: `AuthUser.stellarAddress` is the backend's source of truth for the
+  // payout wallet. A localStorage value written in an earlier session — or
+  // from another device that has since linked something else — must not be
+  // shown as "connected" once the profile says otherwise, so the profile
+  // address overwrites the cache whenever they disagree. A profile with no
+  // address leaves a cached one alone: that's the honest "local" state.
+  useEffect(() => {
+    if (authLoading || !user?.stellarAddress) return;
+    const onFile = user.stellarAddress;
+    if (addressRef.current === onFile) return;
     try {
-      const connection = await freighterConnect();
-      setAddress(connection.address);
-      setNetwork(connection.network);
+      window.localStorage.setItem(WALLET_KEY, onFile);
+    } catch {
+      // Private-mode storage failure: in-memory state below still corrects.
+    }
+    setAddress(onFile);
+    setNetwork(STELLAR_NETWORK);
+    setAddressMismatch(false);
+  }, [user?.stellarAddress, authLoading]);
+
+  /**
+   * Link `walletAddress` to the profile, gated on a signed proof of
+   * ownership (#32). The backend issues a nonce-bearing challenge; Freighter
+   * signs it; the PATCH carries the signature for server-side verification.
+   * Never sends a bare address.
+   */
+  const linkWithProof = useCallback(
+    async (userId: string, walletAddress: string) => {
+      const challenge = await apiRequest<OwnershipChallenge>(
+        `/users/${userId}/stellar-address/challenge`,
+        {
+          method: "POST",
+          body: JSON.stringify({ stellarAddress: walletAddress }),
+        },
+      );
+      const signature = await signOwnershipMessage(
+        challenge.message,
+        walletAddress,
+      );
+      await apiRequest(`/users/${userId}/stellar-address`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          stellarAddress: walletAddress,
+          nonce: challenge.nonce,
+          message: challenge.message,
+          signature,
+        }),
+      });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const adoptAndLink = useCallback(
+    async (walletAddress: string) => {
+      setAddress(walletAddress);
+      setNetwork(STELLAR_NETWORK);
       setAddressMismatch(false);
       setNetworkMismatch(false);
-      window.localStorage.setItem(WALLET_KEY, connection.address);
+      window.localStorage.setItem(WALLET_KEY, walletAddress);
 
       if (user) {
         try {
-          await apiRequest(`/users/${user.id}/stellar-address`, {
-            method: "PATCH",
-            body: JSON.stringify({ stellarAddress: connection.address }),
-          });
-          await refresh();
-        } catch {
+          await linkWithProof(user.id, walletAddress);
+        } catch (err) {
           // The wallet is still usable for signing this session even if the
-          // backend write failed, but the user needs to know their payout
-          // wallet wasn't actually saved to their profile (#229). Leaving
+          // link failed, but the user needs to know their payout wallet
+          // wasn't actually saved to their profile (#229). Leaving
           // `linkState` at "local" is what makes that visible — the Connect
           // CTA stays available so they can retry the link.
           updateError(
-            "Wallet connected, but couldn't save it to your profile — try reconnecting.",
+            err instanceof Error && /reject|declin|denied/i.test(err.message)
+              ? "Wallet connected, but you didn't sign the ownership proof, so it wasn't linked to your profile."
+              : "Wallet connected, but couldn't save it to your profile — try reconnecting.",
           );
         }
       }
-      return connection.address;
+      return walletAddress;
+    },
+    [user, linkWithProof, updateError],
+  );
+
+  const connect = useCallback(async () => {
+    updateError(null);
+    setPendingRelinkAddress(null);
+    setConnecting(true);
+    try {
+      const connection = await freighterConnect();
+      // A different account than the one on file must never silently replace
+      // the payout wallet (#32). Hold it as pending and let the UI ask.
+      if (
+        user?.stellarAddress &&
+        user.stellarAddress !== connection.address
+      ) {
+        setPendingRelinkAddress(connection.address);
+        return null;
+      }
+      return await adoptAndLink(connection.address);
     } catch (err) {
       // connectWallet() (lib/wallet.ts) already throws a real Error with a
       // specific, actionable message for every failure path it detects —
@@ -240,7 +327,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setConnecting(false);
     }
-  }, [user, refresh, updateError]);
+  }, [user, adoptAndLink, updateError]);
+
+  const confirmRelink = useCallback(async () => {
+    if (!pendingRelinkAddress) return null;
+    updateError(null);
+    setConnecting(true);
+    try {
+      const target = pendingRelinkAddress;
+      setPendingRelinkAddress(null);
+      return await adoptAndLink(target);
+    } finally {
+      setConnecting(false);
+    }
+  }, [pendingRelinkAddress, adoptAndLink, updateError]);
+
+  const cancelRelink = useCallback(() => setPendingRelinkAddress(null), []);
 
   const disconnect = useCallback(() => {
     // Best-effort local clear: localStorage throws in Safari private browsing.
@@ -251,6 +353,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
     setAddress(null);
     setNetwork(null);
+    setPendingRelinkAddress(null);
     // Clear the mismatch flags too. They used to survive a disconnect, and
     // `useWalletAction` blocks on them — so "disconnect and reconnect" left
     // the user in a loop that the UI gave them no way out of (#456).
@@ -299,6 +402,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       networkMismatch,
       recheckNetworkMismatch,
       linkState,
+      pendingRelinkAddress,
+      confirmRelink,
+      cancelRelink,
       connect,
       disconnect,
       getError,
@@ -313,6 +419,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       networkMismatch,
       recheckNetworkMismatch,
       linkState,
+      pendingRelinkAddress,
+      confirmRelink,
+      cancelRelink,
       connect,
       disconnect,
       getError,

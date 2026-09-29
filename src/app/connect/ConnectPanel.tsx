@@ -62,6 +62,9 @@ export function ConnectPanel() {
     error,
     initializing: walletInitializing,
     linkState,
+    pendingRelinkAddress,
+    confirmRelink,
+    cancelRelink,
     connect,
     disconnect,
   } = useWallet();
@@ -227,6 +230,31 @@ export function ConnectPanel() {
                     onFile: `${user?.stellarAddress?.slice(0, 4)}...${user?.stellarAddress?.slice(-4)}`,
                   })}
                 </p>
+              </div>
+            )}
+            {pendingRelinkAddress && (
+              <div
+                role="alertdialog"
+                aria-labelledby="relink-title"
+                className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/30"
+              >
+                <p id="relink-title" className="font-medium">
+                  {messages["connect.wallet.relinkTitle"]}
+                </p>
+                <p className="mt-1">
+                  {t("connect.wallet.relinkBody", {
+                    address: `${pendingRelinkAddress.slice(0, 4)}...${pendingRelinkAddress.slice(-4)}`,
+                    onFile: `${user?.stellarAddress?.slice(0, 4)}...${user?.stellarAddress?.slice(-4)}`,
+                  })}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" onClick={confirmRelink} loading={connecting}>
+                    {messages["connect.wallet.relinkConfirm"]}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={cancelRelink}>
+                    {messages["connect.wallet.relinkCancel"]}
+                  </Button>
+                </div>
               </div>
             )}
             <Button
