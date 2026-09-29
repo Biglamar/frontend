@@ -66,6 +66,11 @@ export const messages = {
   "connect.wallet.mismatchTitle": "Wallet address mismatch",
   "connect.wallet.mismatchBody":
     "The connected wallet ({address}) differs from the payout address on file ({onFile}). Payouts are sent to the address on file until you reconnect.",
+  "connect.wallet.relinkTitle": "Replace your payout wallet?",
+  "connect.wallet.relinkBody":
+    "Freighter is now using {address}, but your payout address on file is {onFile}. Replacing it redirects all future payouts and requires you to sign an ownership proof with the new wallet. Nothing changes unless you confirm.",
+  "connect.wallet.relinkConfirm": "Sign and replace wallet",
+  "connect.wallet.relinkCancel": "Keep current wallet",
   "connect.wallet.disconnect": "Disconnect wallet",
   "connect.completeTitle": "You're connected",
   "connect.completeBody": "GitHub and your payout wallet are both linked. You're ready to fund or claim bounties.",

@@ -5,6 +5,7 @@ import {
   getAddress,
   getNetwork,
   signTransaction as freighterSignTransaction,
+  signMessage as freighterSignMessage,
 } from "@stellar/freighter-api";
 import { STELLAR_NETWORK } from "./config";
 import type { StellarNetwork } from "./env";
@@ -109,4 +110,38 @@ export async function signTransaction(xdr: string, address: string) {
     // Reuse the shared mapping so signing and checkNetworkMismatch can't drift (#357).
     networkPassphrase: NETWORK_PASSPHRASES[STELLAR_NETWORK],
   });
+}
+
+/**
+ * Sign a server-issued ownership challenge with Freighter (#32).
+ *
+ * This is message signing, not transaction signing: nothing is submitted to
+ * the network and no funds can move. Replay protection comes from the nonce
+ * and domain the backend embeds in `message`, which the caller must not
+ * construct itself.
+ *
+ * Resolves to the signature as base64. Throws if the user rejects the
+ * request or the signer isn't the address being proven.
+ */
+export async function signOwnershipMessage(
+  message: string,
+  address: string,
+): Promise<string> {
+  const result = await freighterSignMessage(message, {
+    address,
+    networkPassphrase: NETWORK_PASSPHRASES[STELLAR_NETWORK],
+  });
+  if (result.error || !result.signedMessage) {
+    throw new Error(
+      result.error?.message ?? "Wallet did not sign the ownership message.",
+    );
+  }
+  if (result.signerAddress && result.signerAddress !== address) {
+    throw new Error("The signing wallet doesn't match the address being linked.");
+  }
+  const signed = result.signedMessage;
+  if (typeof signed === "string") return signed;
+  let binary = "";
+  for (const byte of signed as Uint8Array) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
