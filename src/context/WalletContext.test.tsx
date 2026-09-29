@@ -12,6 +12,7 @@ import {
   checkNetworkMismatch,
   connectWallet,
   getActiveFreighterAddress,
+  signOwnershipMessage,
 } from "@/lib/wallet";
 import { apiRequest } from "@/lib/api";
 
@@ -31,6 +32,7 @@ jest.mock("@/lib/wallet", () => ({
   // about the mismatch paths specifically override these.
   getActiveFreighterAddress: jest.fn().mockResolvedValue(null),
   checkNetworkMismatch: jest.fn().mockResolvedValue(null),
+  signOwnershipMessage: jest.fn(),
 }));
 
 // WalletContext imports apiRequest for profile linking on connect(), which
@@ -45,7 +47,16 @@ const mockGetActiveFreighterAddress = getActiveFreighterAddress as jest.Mock;
 const mockCheckNetworkMismatch = checkNetworkMismatch as jest.Mock;
 const mockConnectWallet = connectWallet as jest.Mock;
 const mockApiRequest = apiRequest as jest.Mock;
+const mockSign = signOwnershipMessage as jest.Mock;
 const mockRefresh = jest.fn();
+
+/** Backend stub: challenge POST returns a nonce message, everything else resolves. */
+function stubBackend() {
+  mockSign.mockResolvedValue("SIG");
+  mockApiRequest.mockImplementation(async (path: string) =>
+    path.endsWith("/challenge") ? { message: "mergefi.link:NONCE1", nonce: "NONCE1" } : undefined,
+  );
+}
 
 function TestConsumer() {
   const {
@@ -57,6 +68,9 @@ function TestConsumer() {
     initializing,
     linkState,
     network,
+    pendingRelinkAddress,
+    confirmRelink,
+    cancelRelink,
     connect,
     disconnect,
     getError,
@@ -78,6 +92,9 @@ function TestConsumer() {
       <div data-testid="link-state">{linkState}</div>
       <div data-testid="read-after-connect">{readAfterConnect}</div>
       <div data-testid="recheck-result">{recheckResult}</div>
+      <div data-testid="pending-relink">{pendingRelinkAddress ?? "none"}</div>
+      <button onClick={() => void confirmRelink()}>confirm-relink</button>
+      <button onClick={cancelRelink}>cancel-relink</button>
       <button onClick={() => void connect()}>connect</button>
       <button onClick={disconnect}>disconnect</button>
       <button
@@ -120,6 +137,7 @@ beforeEach(() => {
   mockConnectWallet.mockReset();
   mockApiRequest.mockReset();
   mockRefresh.mockReset();
+  mockSign.mockReset();
 });
 
 describe("WalletContext — mount reconciliation (#402)", () => {
@@ -331,7 +349,7 @@ describe("WalletContext — connect() (#231)", () => {
       address: "GNEWADDRESS",
       network: "TESTNET",
     });
-    mockApiRequest.mockResolvedValue(undefined);
+    stubBackend();
 
     render(
       <WalletProvider>
@@ -342,11 +360,42 @@ describe("WalletContext — connect() (#231)", () => {
     fireEvent.click(screen.getByText("connect"));
 
     await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+    // Proof of ownership (#32): challenge -> sign -> PATCH carrying signature.
     expect(mockApiRequest).toHaveBeenCalledWith(
-      "/users/user-1/stellar-address",
-      expect.objectContaining({ method: "PATCH" }),
+      "/users/user-1/stellar-address/challenge",
+      expect.objectContaining({ method: "POST" }),
     );
+    expect(mockSign).toHaveBeenCalledWith("mergefi.link:NONCE1", "GNEWADDRESS");
+    const patch = mockApiRequest.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(patch?.[0]).toBe("/users/user-1/stellar-address");
+    expect(JSON.parse(patch?.[1].body)).toEqual({
+      stellarAddress: "GNEWADDRESS",
+      nonce: "NONCE1",
+      message: "mergefi.link:NONCE1",
+      signature: "SIG",
+    });
     expect(screen.getByTestId("error")).toHaveTextContent("none");
+  });
+
+  it("does not link the profile when the user declines to sign (#32)", async () => {
+    mockUseAuth.mockReturnValue({ user: { id: "user-1" }, loading: false, refresh: mockRefresh });
+    mockConnectWallet.mockResolvedValue({ address: "GNEWADDRESS", network: "TESTNET" });
+    stubBackend();
+    mockSign.mockRejectedValue(new Error("User declined access"));
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+    fireEvent.click(screen.getByText("connect"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("error")).toHaveTextContent(/didn't sign the ownership proof/),
+    );
+    expect(mockApiRequest.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+    expect(mockRefresh).not.toHaveBeenCalled();
+    expect(screen.getByTestId("link-state")).toHaveTextContent("local");
   });
 
   it("getError() returns the fresh failure reason synchronously right after connect() settles (#235)", async () => {
@@ -584,16 +633,67 @@ describe("WalletContext — linkState (#456)", () => {
     await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("linked"));
   });
 
-  it("is 'local', not 'linked', when the profile holds a different address", async () => {
-    // Payouts still go to the on-file address, so presenting this as complete
-    // would misdescribe where the money goes.
+  it("holds a different Freighter account as pending instead of re-linking it (#32)", async () => {
     mockUseAuth.mockReturnValue({
       user: { id: "user-1", stellarAddress: "GDIFFERENTADDRESS" },
       loading: false,
       refresh: mockRefresh,
     });
     mockConnectWallet.mockResolvedValue({ address: ADDRESS, network: "TESTNET" });
-    mockApiRequest.mockResolvedValue(undefined);
+    stubBackend();
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("address")).toHaveTextContent("GDIFFERENTADDRESS"));
+
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("pending-relink")).toHaveTextContent(ADDRESS));
+
+    // Nothing sent, nothing adopted, until the user confirms.
+    expect(mockApiRequest).not.toHaveBeenCalled();
+    expect(screen.getByTestId("address")).toHaveTextContent("GDIFFERENTADDRESS");
+    expect(window.localStorage.getItem(WALLET_KEY)).toBe("GDIFFERENTADDRESS");
+
+    fireEvent.click(screen.getByText("confirm-relink"));
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("pending-relink")).toHaveTextContent("none");
+    expect(screen.getByTestId("address")).toHaveTextContent(ADDRESS);
+    expect(mockSign).toHaveBeenCalledWith("mergefi.link:NONCE1", ADDRESS);
+  });
+
+  it("discards a pending re-link on cancel without touching the profile (#32)", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-1", stellarAddress: "GDIFFERENTADDRESS" },
+      loading: false,
+      refresh: mockRefresh,
+    });
+    mockConnectWallet.mockResolvedValue({ address: ADDRESS, network: "TESTNET" });
+    stubBackend();
+
+    render(
+      <WalletProvider>
+        <TestConsumer />
+      </WalletProvider>,
+    );
+    fireEvent.click(screen.getByText("connect"));
+    await waitFor(() => expect(screen.getByTestId("pending-relink")).toHaveTextContent(ADDRESS));
+    fireEvent.click(screen.getByText("cancel-relink"));
+
+    expect(screen.getByTestId("pending-relink")).toHaveTextContent("none");
+    expect(mockApiRequest).not.toHaveBeenCalled();
+    expect(screen.getByTestId("link-state")).toHaveTextContent("linked");
+  });
+
+  it("treats the profile address as authoritative over a stale cached one on load (#32)", async () => {
+    window.localStorage.setItem(WALLET_KEY, "GSTALECACHED");
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-1", stellarAddress: "GONFILEADDRESS" },
+      loading: false,
+      refresh: mockRefresh,
+    });
 
     render(
       <WalletProvider>
@@ -601,8 +701,9 @@ describe("WalletContext — linkState (#456)", () => {
       </WalletProvider>,
     );
 
-    fireEvent.click(screen.getByText("connect"));
-    await waitFor(() => expect(screen.getByTestId("link-state")).toHaveTextContent("local"));
+    await waitFor(() => expect(screen.getByTestId("address")).toHaveTextContent("GONFILEADDRESS"));
+    expect(window.localStorage.getItem(WALLET_KEY)).toBe("GONFILEADDRESS");
+    expect(screen.getByTestId("link-state")).toHaveTextContent("linked");
   });
 
   it("stays 'local' when the profile PATCH fails, so the UI can offer a retry", async () => {

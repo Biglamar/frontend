@@ -89,3 +89,33 @@ describe("Badge", () => {
     expect(screen.getByText("Custom").className).toMatch(/test-extra-class/);
   });
 });
+
+describe("non-colour cues (#49)", () => {
+  it.each([...ALL_STATUSES])("renders a decorative icon alongside the %s label", (status) => {
+    const { container } = render(<StatusBadge status={status} />);
+    const svg = container.querySelector("svg");
+    expect(svg).toBeInTheDocument();
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("gives every status a distinct icon", () => {
+    const icons = ALL_STATUSES.map((status) => {
+      const { container, unmount } = render(<StatusBadge status={status} />);
+      const html = container.querySelector("svg")?.getAttribute("class");
+      unmount();
+      return html;
+    });
+    expect(new Set(icons).size).toBe(ALL_STATUSES.length);
+  });
+
+  it("makes funded and paid differ by fill as well as icon", () => {
+    render(
+      <>
+        <StatusBadge status="funded" />
+        <StatusBadge status="paid" />
+      </>,
+    );
+    expect(screen.getByText("Paid").className).toMatch(/bg-emerald-700/);
+    expect(screen.getByText("Funded").className).not.toMatch(/bg-emerald-700/);
+  });
+});
