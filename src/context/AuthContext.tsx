@@ -15,6 +15,8 @@ import type { AuthUser } from "@/types";
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
+  /** True when the auth backend is unreachable and the session state is uncertain (#587) */
+  degraded: boolean;
   login: (token: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
@@ -25,12 +27,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [degraded, setDegraded] = useState(false);
 
   const refresh = useCallback(async () => {
     const token = getToken();
     if (!token) {
       setUser(null);
       setLoading(false);
+      setDegraded(false);
       return;
     }
     try {
@@ -39,9 +43,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
       const profile = await apiRequest<AuthUser>(`/users/${session.userId}`);
       setUser(profile);
+      setDegraded(false);
     } catch {
       clearToken();
       setUser(null);
+      setDegraded(true);
     } finally {
       setLoading(false);
     }
@@ -88,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, degraded, login, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );
