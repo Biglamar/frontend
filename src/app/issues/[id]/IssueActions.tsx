@@ -36,31 +36,13 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   const isSponsor = !!user && !!bounty.sponsorId && user.id === bounty.sponsorId;
 
   /**
-   * "Fund this bounty" is deliberately gated on `status === "open"` only —
-   * unlike "Refund sponsor", it is not additionally gated on `isSponsor`.
-   * The asymmetry is a design decision, so here is the reasoning, confirmed
-   * against mergefi-backend rather than assumed:
+   * "Fund this bounty" is sponsor-only, same as "Refund sponsor" (#602).
    *
-   * - Server-side the two routes are authorized *identically*:
-   *   `POST /bounties/:id/fund` and `POST /bounties/:id/refund` both require
-   *   the SPONSOR or MAINTAINER role, and both services throw
-   *   `ForbiddenException` unless `bounty.sponsorId === callerUserId`. There
-   *   is no crowdfunding path — a bounty carries a single nullable
-   *   `sponsorId` FK and a single `Escrow` row, so "the funder" is always
-   *   exactly one account, never a set of contributors.
-   * - Refund was the one to gate in the UI because it was being offered to
-   *   every authenticated visitor with no relationship check at all: a
-   *   destructive, already-funded escrow action advertised as a normal
-   *   button. The affordance itself was the bug.
-   * - Fund stays open as the page's primary forward CTA on an open bounty.
-   *   A viewer who isn't the sponsor gets the backend's 403 surfaced as a
-   *   normal error message, having moved no money — a rejected forward
-   *   action, not a hijackable one.
-   *
-   * Both buttons are therefore sponsor-only in effect; only refund is
-   * sponsor-only in appearance. If that becomes confusing rather than
-   * economical, gating Fund on `isSponsor` too is a one-line change — the
-   * field it needs now exists.
+   * mergefi-backend's `POST /bounties/:id/fund` throws 403
+   * "Only the bounty sponsor can fund this bounty" unless
+   * `bounty.sponsorId === callerUserId`. Offering the button to every visitor
+   * invited contributors to connect a wallet and then hit that error.
+   * Non-sponsors now see a neutral "Awaiting sponsor funding" state instead.
    */
   // SCOPED OUT (deliberate, not overlooked): bounty.teamSplitsValid is now
   // surfaced as a visible warning on IssueDetailPage, but it does *not* gate
@@ -139,9 +121,14 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   return (
     <div className="mt-10">
       <div className="flex flex-wrap gap-3">
-        {bounty.status === "open" && (
+        {bounty.status === "open" && isSponsor && (
           <Button size="lg" onClick={handleFund} loading={pending || connecting}>
             {pending || connecting ? "Confirming in wallet..." : "Fund this bounty"}
+          </Button>
+        )}
+        {bounty.status === "open" && !isSponsor && (
+          <Button size="lg" variant="outline" disabled>
+            Awaiting sponsor funding
           </Button>
         )}
         {bounty.status === "funded" && (
@@ -161,7 +148,7 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
             Refund sponsor
           </Button>
         )}
-        {["in_review", "merged", "paid", "refunded", "expired"].includes(
+        {["in_review", "merged", "release_failed", "paid", "refunded", "expired", "unknown"].includes(
           bounty.status,
         ) && (
           <Button size="lg" variant="outline" disabled>
@@ -171,7 +158,9 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
                 ? "Awaiting PR merge"
                 : bounty.status === "merged"
                   ? "Payout pending"
-                  : "No action available"}
+                  : bounty.status === "release_failed"
+                    ? "Payout failed — contact support"
+                    : "No action available"}
           </Button>
         )}
       </div>
