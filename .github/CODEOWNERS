@@ -1,0 +1,11 @@
+# CODEOWNERS — paths requiring named reviewers before merge.
+# Money-path and critical files get mandatory review from maintainers.
+
+/lib/api.ts           @oldtaker24
+/lib/wallet.ts        @oldtaker24
+/lib/network.ts       @oldtaker24
+/src/context/WalletContext.tsx  @oldtaker24
+/next.config.ts       @oldtaker24
+/src/lib/api.ts       @oldtaker24
+/src/lib/wallet.ts    @oldtaker24
+/src/context/WalletContext.tsx  @oldtaker24
