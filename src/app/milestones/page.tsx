@@ -78,6 +78,42 @@ export default async function MilestonesPage() {
               </Link>
             }
           />
+        ) : milestones.map((m) => {
+          const isUnfunded = m.budget <= 0;
+          const rawPct = isUnfunded ? 0 : m.distributed / m.budget;
+          const pct = Math.min(rawPct, 1);
+          return (
+            <Card key={m.id}>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{m.repo}</p>
+              <h3 className="mt-1 font-medium text-slate-900 dark:text-white">{m.name}</h3>
+              <div className="mt-4" role="progressbar" aria-label="Payout progress" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div
+                    className="h-full bg-indigo-600"
+                    style={{ width: `${pct * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+                <span>
+                  {formatCurrency(m.distributed, m.asset)} of{" "}
+                  {formatCurrency(m.budget, m.asset)} paid
+                </span>
+                <span>
+                  {isUnfunded
+                    ? "Not yet funded"
+                    : rawPct > 1
+                    ? "Over-funded"
+                    : formatPercent(rawPct)}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                {m.completedCount} of {m.issueCount} issues complete
+              </p>
+              <MilestoneFundButton milestoneId={m.id} milestoneName={m.name} />
+            </Card>
+          );
+        })}
         ) : (
           milestones.map((m) => {
             // Fundable remainder for the amount input's default and cap. A
