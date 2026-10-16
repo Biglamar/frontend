@@ -249,6 +249,11 @@ export function daysUntil(dateIso: string) {
   return Math.ceil((deadlineUtc - nowUtc) / (1000 * 60 * 60 * 24));
 }
 
+export function formatDaysUntil(days: number | null): string {
+  if (days === null) return "No deadline";
+  if (days > 0) return `${days} day${days === 1 ? "" : "s"} left`;
+  if (days === 0) return "Due today";
+  return "Deadline passed";
 /**
  * Human deadline label. Pluralization goes through `Intl.PluralRules` via the
  * message catalog rather than the previous `days === 1 ? "" : "s"` ternary,
