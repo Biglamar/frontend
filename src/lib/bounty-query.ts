@@ -17,7 +17,7 @@ import type { Bounty } from "@/types";
 
 export const PAGE_SIZE = 10;
 
-export const STATUS_VALUES = ["all", "open", "in_review"] as const;
+export const STATUS_VALUES = ["all", "open", "funded", "in_review"] as const;
 export type StatusFilter = (typeof STATUS_VALUES)[number];
 
 export const DIFFICULTY_VALUES = [

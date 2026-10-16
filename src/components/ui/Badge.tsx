@@ -134,7 +134,7 @@ function BaseBadge({
  *  "in review" in lower case and only ever replaced the *first* underscore, so
  *  a new multi-word status would leak its raw enum key to users. */
 const statusLabels: Record<BountyStatus, string> = {
-  open: "Open",
+  open: "Not yet funded",
   funded: "Funded",
   claimed: "Claimed",
   in_review: "In Review",
