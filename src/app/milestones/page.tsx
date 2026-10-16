@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { fetchMilestones, fetchMaintenancePools } from "@/lib/api";
 import { mockMilestones, mockMaintenancePools } from "@/lib/mock-data";
-import { formatCurrency, formatPercent } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { MilestoneFundButton, PoolDepositButton } from "./MilestoneActions";
+import { MilestoneFundingProgress } from "./MilestoneFundingProgress";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Target, Droplets } from "lucide-react";
+import { t } from "@/lib/messages";
 
 const milestonesDescription =
   "Fund open source release milestones and recurring maintenance pools through MergeFi.";
@@ -23,8 +31,13 @@ export const metadata: Metadata = {
 };
 
 export default async function MilestonesPage() {
-  const milestones = await fetchMilestones(mockMilestones);
-  const pools = await fetchMaintenancePools(mockMaintenancePools);
+  const [milestonesRes, poolsRes] = await Promise.all([
+    fetchMilestones(mockMilestones),
+    fetchMaintenancePools(mockMaintenancePools),
+  ]);
+  const milestones = milestonesRes.data;
+  const pools = poolsRes.data;
+  const source = milestonesRes.source === "mock" || poolsRes.source === "mock" ? "mock" : "live";
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
@@ -35,41 +48,70 @@ export default async function MilestonesPage() {
         Milestone funding
       </h1>
       <p className="mt-2 max-w-2xl text-slate-500 dark:text-slate-400">
-        Sponsors can fund an entire release instead of a single issue. Budget
-        is distributed automatically across the milestone&apos;s issues as
-        each one resolves.
+        Sponsors can fund an entire release instead of a single issue. Budget is
+        distributed automatically across the milestone&apos;s issues as each one
+        resolves.
       </p>
 
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
-        {milestones.map((m) => {
-          const pct = m.distributed / m.budget;
-          return (
-            <div
-              key={m.id}
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-            >
-              <p className="text-xs text-slate-500 dark:text-slate-400">{m.repo}</p>
-              <h3 className="mt-1 font-medium text-slate-900 dark:text-white">{m.name}</h3>
-              <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                <div
-                  className="h-full bg-indigo-600"
-                  style={{ width: `${Math.min(pct * 100, 100)}%` }}
+      {/* Neither section consumed `source` before, so a mock fallback here was
+          indistinguishable from live data. */}
+      {source === "mock" && <DataSourceNotice className="mt-6" />}
+
+      <h2 className="mt-8 text-xl font-semibold text-slate-900 dark:text-white">
+        Active milestones
+      </h2>
+
+      {/* `md:col-span-2` so the empty state spans the grid instead of
+          occupying one narrow cell. */}
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        {milestones.length === 0 ? (
+          <EmptyState
+            icon={Target}
+            tone="neutral"
+            className="md:col-span-2"
+            title={t("empty.milestones.none.title")}
+            description={t("empty.milestones.none.description")}
+            action={
+              <Link href="/connect">
+                <Button size="sm">{t("empty.milestones.none.cta")}</Button>
+              </Link>
+            }
+          />
+        ) : (
+          milestones.map((m) => {
+            // Fundable remainder for the amount input's default and cap. A
+            // milestone with no budget yet (budget <= 0) is left uncapped
+            // rather than reported as fully funded — "remaining 0" would
+            // disable the button on exactly the milestones that most need
+            // their first contribution.
+            const remainingBudget =
+              m.budget > 0 ? Math.max(m.budget - m.distributed, 0) : undefined;
+            return (
+              <Card key={m.id}>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {m.repo}
+                </p>
+                <h3 className="mt-1 font-medium text-slate-900 dark:text-white">
+                  {m.name}
+                </h3>
+                <MilestoneFundingProgress
+                  budget={m.budget}
+                  distributed={m.distributed}
+                  asset={m.asset}
                 />
-              </div>
-              <div className="mt-3 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-                <span>
-                  {formatCurrency(m.distributed, m.asset)} of{" "}
-                  {formatCurrency(m.budget, m.asset)}
-                </span>
-                <span>{formatPercent(pct)}</span>
-              </div>
-              <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                {m.completedCount} of {m.issueCount} issues complete
-              </p>
-              <MilestoneFundButton milestoneId={m.id} />
-            </div>
-          );
-        })}
+                <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                  {m.completedCount} of {m.issueCount} issues complete
+                </p>
+                <MilestoneFundButton
+                  milestoneId={m.id}
+                  milestoneName={m.name}
+                  remainingBudget={remainingBudget}
+                  asset={m.asset}
+                />
+              </Card>
+            );
+          })
+        )}
       </div>
 
       <h2 className="mt-16 text-2xl font-semibold text-slate-900 dark:text-white">
@@ -80,21 +122,40 @@ export default async function MilestonesPage() {
         dependency bumps, docs, and cleanup, that would otherwise go unfunded.
       </p>
       <div className="mt-8 grid gap-4 md:grid-cols-2">
-        {pools.map((pool) => (
-          <div
-            key={pool.id}
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-          >
-            <p className="text-xs text-slate-500 dark:text-slate-400">{pool.repo}</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
-              {formatCurrency(pool.balance, pool.asset)} balance
-            </p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {formatCurrency(pool.monthlyDeposit, pool.asset)} deposited monthly
-            </p>
-            <PoolDepositButton poolId={pool.id} />
-          </div>
-        ))}
+        {pools.length === 0 ? (
+          <EmptyState
+            icon={Droplets}
+            tone="neutral"
+            className="md:col-span-2"
+            title={t("empty.pools.none.title")}
+            description={t("empty.pools.none.description")}
+            action={
+              <Link href="/connect">
+                <Button size="sm">{t("empty.pools.none.cta")}</Button>
+              </Link>
+            }
+          />
+        ) : (
+          pools.map((pool) => (
+            <Card key={pool.id}>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {pool.repo}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                {formatCurrency(pool.balance, pool.asset)} balance
+              </p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {formatCurrency(pool.monthlyDeposit, pool.asset)} deposited
+                monthly
+              </p>
+              <PoolDepositButton
+                poolId={pool.id}
+                poolRepo={pool.repo}
+                asset={pool.asset}
+              />
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

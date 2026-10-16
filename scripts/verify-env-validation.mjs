@@ -65,6 +65,26 @@ const CASES = [
     },
     expectSuccess: true,
   },
+  {
+    // PUBLIC is the production-critical network value — a regression that
+    // broke the build specifically for "PUBLIC" while leaving "TESTNET"
+    // working would pass every case above undetected.
+    name: "valid NEXT_PUBLIC_STELLAR_NETWORK=PUBLIC builds successfully",
+    env: { NEXT_PUBLIC_STELLAR_NETWORK: "PUBLIC" },
+    expectSuccess: true,
+  },
+  {
+    // validateApiUrl explicitly rejects javascript:/file:/non-http(s)
+    // schemes (#204), but the existing "not-a-url" case only tests an
+    // unparseable URL — not a well-formed URL with a disallowed scheme.
+    name: 'rejected URL scheme (javascript:) fails the build',
+    env: {
+      NEXT_PUBLIC_STELLAR_NETWORK: "TESTNET",
+      NEXT_PUBLIC_API_URL: "javascript:alert(1)",
+    },
+    expectSuccess: false,
+    expectedMessageFragment: 'uses the "javascript:" scheme',
+  },
 ];
 
 function runBuild(envOverrides) {

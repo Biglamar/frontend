@@ -91,6 +91,9 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
         setNotice("Escrow funded on-chain. This bounty is now open for claims.");
         // Rotate key after definitive success so next fund attempt is fresh
         setFundKey(generateIdempotencyKey());
+          idempotencyKey: generateIdempotencyKey(),
+        });
+        setNotice("Escrow funded on-chain. This bounty is now open for claims.");
       }, "Connect a Stellar wallet to continue.");
       if (!result.ok) {
         setError(result.error);
@@ -132,6 +135,7 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     try {
       await apiPost(`/bounties/${bounty.id}/refund`, {
         idempotencyKey: refundKey,
+        idempotencyKey: generateIdempotencyKey(),
       });
       setNotice("Escrowed funds were refunded to the sponsor.");
       // Rotate key after definitive success

@@ -17,7 +17,9 @@ describe("BountyDescription — content fidelity", () => {
     render(<BountyDescription description={description} />);
 
     expect(screen.queryByText(/```/)).not.toBeInTheDocument();
-    const code = screen.getByText((content) => content.includes("getBalance()"));
+    const code = screen.getByText((content) =>
+      content.includes("getBalance()"),
+    );
     expect(code.tagName.toLowerCase()).toBe("code");
     expect(code.closest("pre")).toBeInTheDocument();
   });
@@ -48,10 +50,57 @@ describe("BountyDescription — content fidelity", () => {
     expect(screen.getByText("second step").closest("li")).toBeInTheDocument();
   });
 
+  it("renders an ordered list as real <ol><li> elements with decimal styling", () => {
+    render(<BountyDescription description={"1. first\n2. second\n3. third"} />);
+
+    const ol = screen.getByText("first").closest("ol");
+    expect(ol).toBeInTheDocument();
+    expect(ol?.className).toContain("list-decimal");
+    expect(screen.getByText("first").closest("li")).toBeInTheDocument();
+    expect(screen.getByText("second").closest("li")).toBeInTheDocument();
+    expect(screen.getByText("third").closest("li")).toBeInTheDocument();
+  });
+
+  it("renders a blockquote with a logical border on the inline-start edge", () => {
+    // `border-s-*` / `ps-*` rather than `border-l-*` / `pl-*` (#456). The
+    // border sits on the blockquote's inline-start edge, which is the correct
+    // semantic — a physical left border lands on the wrong side of the bar
+    // once the document direction is right-to-left. This renderer handles
+    // untrusted third-party issue Markdown, so it is the highest-RTL-risk
+    // component in the app.
+    render(<BountyDescription description={"> quoted text"} />);
+
+    const blockquote = screen.getByText("quoted text").closest("blockquote");
+    expect(blockquote).toBeInTheDocument();
+    expect(blockquote?.className).toContain("border-s-2");
+    expect(blockquote?.className).toContain("ps-4");
+    expect(blockquote?.className).not.toMatch(/border-l-|pl-4/);
+    expect(blockquote?.className).toContain("italic");
+  });
+
+  it("remaps h1→h2, h2→h3, h3→h4 so issue headings don't compete with the page title", () => {
+    render(
+      <BountyDescription
+        description={"# Top Level\n\n## Section\n\n### Subsection"}
+      />,
+    );
+
+    const h1 = screen.getByText("Top Level");
+    expect(h1.tagName.toLowerCase()).toBe("h2");
+
+    const h2 = screen.getByText("Section");
+    expect(h2.tagName.toLowerCase()).toBe("h3");
+
+    const h3 = screen.getByText("Subsection");
+    expect(h3.tagName.toLowerCase()).toBe("h4");
+  });
+
   it("styles h4/h5/h6 headings instead of falling back to unstyled defaults (#214)", () => {
     render(
       <BountyDescription
-        description={"#### Steps to reproduce\n\n##### Expected\n\n###### Actual"}
+        description={
+          "#### Steps to reproduce\n\n##### Expected\n\n###### Actual"
+        }
       />,
     );
 
@@ -75,9 +124,42 @@ describe("BountyDescription — content fidelity", () => {
 
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img).toHaveAttribute("src", "https://user-images.githubusercontent.com/1/shot.png");
+    expect(img).toHaveAttribute(
+      "src",
+      "https://user-images.githubusercontent.com/1/shot.png",
+    );
     expect(img).toHaveAttribute("alt", "a screenshot");
     expect(img?.className).toContain("max-w-full");
+    expect(img?.className).toContain("aspect-video");
+    expect(img?.className).toContain("object-contain");
+  });
+
+  it("renders a GFM table as real <table>/<thead>/<tbody>/<tr>/<th>/<td> elements with styling", () => {
+    const description =
+      "| Token | Amount |\n|-------|--------|\n| USDC  | 100    |\n| XLM   | 500    |";
+    const { container } = render(
+      <BountyDescription description={description} />,
+    );
+
+    const table = container.querySelector("table");
+    expect(table).toBeInTheDocument();
+    expect(table?.className).toContain("w-full");
+
+    const thead = container.querySelector("thead");
+    expect(thead).toBeInTheDocument();
+
+    const tbody = container.querySelector("tbody");
+    expect(tbody).toBeInTheDocument();
+
+    const ths = container.querySelectorAll("th");
+    expect(ths.length).toBe(2);
+    expect(ths[0].textContent).toBe("Token");
+    expect(ths[1].textContent).toBe("Amount");
+
+    const tds = container.querySelectorAll("td");
+    expect(tds.length).toBe(4);
+    expect(tds[0].textContent).toBe("USDC");
+    expect(tds[1].textContent).toBe("100");
   });
 });
 
@@ -109,7 +191,7 @@ describe("BountyDescription — untrusted-content hardening", () => {
   });
 
   it("renders a raw <script> tag embedded in the markdown as inert text, never as an executable script element", () => {
-    const payload = 'Notes: <script>window.__xss = 1;</script> end';
+    const payload = "Notes: <script>window.__xss = 1;</script> end";
     (window as unknown as { __xss?: number }).__xss = undefined;
 
     const { container } = render(<BountyDescription description={payload} />);

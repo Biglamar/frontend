@@ -10,6 +10,7 @@ import {
   coerceDecimal,
   coerceNonNegative,
   coercePercentage,
+  coerceStatus,
   validateTeamSplits,
 } from "./utils";
 
@@ -58,6 +59,11 @@ export interface RawBounty {
   escrowId: string | null;
   issue?: RawIssue;
   claimedBy?: RawUser | null;
+  // Nullable column on mergefi-backend's Bounty entity — the sponsor of a
+  // bounty that was created without one (or before the column existed) comes
+  // back as `null`, not as a missing key. Normalized to `undefined` below so
+  // callers can rely on a single "unknown funder" representation.
+  sponsorId?: string | null;
   team?: { splits?: RawTeamSplit[] } | null;
 }
 
@@ -91,8 +97,23 @@ export interface RawBounty {
  *   backend endpoint (bounties filtered by milestoneId) or fetching every
  *   bounty on a funding-overview page just to filter client-side —
  *   real new scope, not a natural extension of restoring this mapping.
+ *
+ * Contrast with `sponsorId`: unlike `issue`/`claimedBy`/`team`, sponsor is a
+ * plain column on the Bounty row (not a relation that needs a `relations`
+ * option to hydrate), so it is present on live responses today regardless of
+ * that gap.
  */
-export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { valid: boolean; sum: number; message?: string } } {
+/**
+ * Returns the domain `Bounty` type. `teamSplitsValid` is declared on
+ * `Bounty` itself (src/types/bounty.ts) rather than intersected onto this
+ * function's return type: an adapter-local intersection is invisible to any
+ * consumer typed as the plain `Bounty` (fetchBounties returns `Bounty[]`, so
+ * every caller narrowed to that type structurally lost access to the field —
+ * the type-level half of the "computed but never consumed" bug, where
+ * adaptBounty computed and attached a validity flag that no component could
+ * read).
+ */
+export function adaptBounty(raw: RawBounty): Bounty {
   const splits = raw.team?.splits?.map(
     (split): TeamSplit => ({
       role: split.role ?? "Contributor",
@@ -111,7 +132,7 @@ export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { vali
     reward: coerceNonNegative(raw.amount),
     asset: raw.asset,
     difficulty: raw.difficulty,
-    status: raw.status,
+    status: coerceStatus(raw.status),
     // A null deadline means the bounty is genuinely open-ended, not "due
     // now" — pass it through as-is rather than fabricating a "now"
     // timestamp that would make daysUntil() render it as already expired
@@ -120,6 +141,7 @@ export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { vali
     labels: raw.issue?.labels ?? [],
     claimedBy: raw.claimedBy?.username,
     claimedById: raw.claimedBy?.id,
+    sponsorId: raw.sponsorId ?? undefined,
     milestoneId: raw.issue?.milestoneId ?? undefined,
     escrowId: raw.escrowId ?? undefined,
     teamSplits: splits,
@@ -182,6 +204,13 @@ export interface RawReputationSnapshot {
 export interface RawUserProfile {
   username: string;
   avatarUrl: string | null;
+  /**
+   * mergefi-backend has no such field on its user entity yet. Read
+   * defensively so this is a no-op until it lands, and so an explicitly
+   * non-public profile can never be indexed by omission: anything other than
+   * `true` means "not indexable" (see src/lib/seo-policy.ts).
+   */
+  isProfilePublic?: boolean | null;
 }
 
 export function adaptReputation(
@@ -207,5 +236,6 @@ export function adaptReputation(
           .map(([lang]) => lang)
       : [],
     organizations: snapshot?.orgsContributedTo ?? [],
+    indexable: user.isProfilePublic === true,
   };
 }
