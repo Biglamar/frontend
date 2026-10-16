@@ -162,10 +162,11 @@ export async function apiRequest<T>(
   });
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export function apiPost<T>(path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   return apiRequest<T>(path, {
     method: "POST",
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
   });
 }
 
@@ -232,13 +233,37 @@ export async function fetchReputationByUsername(
   fallback: ReputationProfile | null,
 ): Promise<FetchResult<ReputationProfile | null>> {
   try {
-    const users = await request<(RawUserProfile & { id: string })[]>("/users");
+    // Prefer the public read path (#597). `GET /users` is JWT-gated and
+    // `GET /reputation/:id` is owner-only, so the old pair always 401/403'd
+    // for anonymous profile views and fell through to mock data. The
+    // by-username endpoint is the intended public lookup; the legacy pair is
+    // kept as a secondary attempt for backends that still expose it.
     const target = username.toLowerCase();
-    const user = users.find((u) => u.username.toLowerCase() === target);
-    if (!user) return { data: fallback, source: "mock" };
-    const snapshot = await request<RawReputationSnapshot | null>(
-      `/reputation/${user.id}`,
-    );
+    let user: (RawUserProfile & { id: string }) | undefined;
+    try {
+      user = await request<RawUserProfile & { id: string }>(
+        `/users/by-username/${encodeURIComponent(username)}`,
+      );
+    } catch {
+      const users = await request<(RawUserProfile & { id: string })[]>("/users");
+      user = users.find((u) => u.username.toLowerCase() === target);
+    }
+    if (!user?.id) return { data: fallback, source: "mock" };
+
+    let snapshot: RawReputationSnapshot | null = null;
+    try {
+      snapshot = await request<RawReputationSnapshot | null>(
+        `/reputation/${user.id}/latest`,
+      );
+    } catch {
+      try {
+        snapshot = await request<RawReputationSnapshot | null>(
+          `/reputation/${user.id}`,
+        );
+      } catch {
+        snapshot = null;
+      }
+    }
     return { data: adaptReputation(user, snapshot), source: "live" };
   } catch {
     return { data: fallback, source: "mock" };
@@ -261,13 +286,14 @@ export async function fetchIndexableReputationHandles(
 ): Promise<FetchResult<string[]>> {
   try {
     const users = await request<(RawUserProfile & { id: string })[]>("/users");
-    return {
-      data: users
-        .filter((user) => user.isProfilePublic === true)
-        .map((user) => user.username)
-        .filter(Boolean),
-      source: "live",
-    };
+    // The backend's PublicUserDto currently has no isProfilePublic field,
+    // so profile indexing is effectively disabled until it ships (#598).
+    // Once the backend adds the flag, this filter will start matching.
+    const indexable = users
+      .filter((user) => user.isProfilePublic === true)
+      .map((user) => user.username)
+      .filter(Boolean);
+    return { data: indexable, source: "live" };
   } catch {
     // The mock fixtures represent contributors who have opted in, so local
     // development exercises the same code path production will take once the

@@ -41,6 +41,13 @@ function shortAddress(address: string): string {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
+/** #589 — roles map used to build the accessible explanation for the count badge. */
+const roleLabels: Record<string, string> = {
+  contributor: "Contributor",
+  maintainer: "Maintainer",
+  sponsor: "Sponsor",
+};
+
 export function Navbar() {
   const { user, loading, logout } = useAuth();
   const { address, linkState, initializing } = useWallet();
@@ -79,6 +86,9 @@ export function Navbar() {
       document.removeEventListener("mousedown", onClickOutside);
     };
   }, [dashboardsOpen, closeDashboards]);
+  // #589 — compute multi-role info so the badge carries an accessible title
+  const roles = user?.roles ?? [];
+  const multiRole = roles.length > 1;
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
@@ -105,6 +115,17 @@ export function Navbar() {
                 onClick={() => setDashboardsOpen((v) => !v)}
                 className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
               >
+                Dashboards
+                {/* #589 — multi-role indicator with accessible title */}
+                {multiRole && (
+                  <span
+                    className="ml-1.5 inline-flex items-center justify-center rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300"
+                    title={`You have ${roles.length} roles: ${roles.map((r) => roleLabels[r] ?? r).join(", ")}`}
+                  >
+                    {roles.length}
+                  </span>
+                )}
+                <ChevronDown className="h-3.5 w-3.5" />
                 {messages["nav.dashboards"]}
                 {orderedRoles.length > 1 && (
                   <span className="rounded-full bg-indigo-50 px-1.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">

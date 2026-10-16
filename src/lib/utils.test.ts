@@ -222,27 +222,27 @@ describe("coerceStatus", () => {
   it("accepts all valid BountyStatus values", () => {
     const statuses = [
       "open", "funded", "claimed", "in_review",
-      "merged", "paid", "refunded", "expired",
+      "merged", "release_failed", "paid", "refunded", "expired", "unknown",
     ] as const;
     for (const s of statuses) {
       expect(coerceStatus(s)).toBe(s);
     }
   });
 
-  it("falls back to 'open' for an unrecognized string", () => {
-    expect(coerceStatus("banana")).toBe("open");
+  it("falls back to 'unknown' for an unrecognized string", () => {
+    expect(coerceStatus("banana")).toBe("unknown");
   });
 
-  it("falls back to 'open' for null", () => {
-    expect(coerceStatus(null)).toBe("open");
+  it("falls back to 'unknown' for null", () => {
+    expect(coerceStatus(null)).toBe("unknown");
   });
 
-  it("falls back to 'open' for undefined", () => {
-    expect(coerceStatus(undefined)).toBe("open");
+  it("falls back to 'unknown' for undefined", () => {
+    expect(coerceStatus(undefined)).toBe("unknown");
   });
 
-  it("falls back to 'open' for empty string", () => {
-    expect(coerceStatus("")).toBe("open");
+  it("falls back to 'unknown' for empty string", () => {
+    expect(coerceStatus("")).toBe("unknown");
   });
 });
 

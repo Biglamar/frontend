@@ -44,16 +44,12 @@ const apiOrigin = new URL(env.apiBaseUrl).origin;
  *   too. The browser ignores this header entirely over plain HTTP, so
  *   it's harmless to always send.
  *
- * Content-Security-Policy (#4):
- * - 'unsafe-inline' is required for: (1) the theme-init inline script in
- *   <head>, (2) Turbopack dev-mode HMR inline scripts, and (3) React 19's
- *   hydration inline scripts. A nonce or hash-based approach would be more
- *   secure but requires build-time instrumentation that composes poorly
- *   with Turbopack's current dev mode. 'unsafe-inline' for scripts is
- *   still a meaningful upgrade over no CSP at all — it blocks external
- *   script injection from third-party origins and inline event handlers
- *   (onclick, onerror) injected via XSS.
- * - connect-src includes the API backend so authenticated fetches work.
+ * Content-Security-Policy (#4, #610):
+ * - Now set in middleware.ts with a per-request nonce (see middleware.ts).
+ *   The nonce replaces `'unsafe-inline'` for scripts, so injected inline
+ *   <script> tags and inline event handlers no longer execute.
+ * - connect-src is set dynamically in middleware (apiOrigin is computed
+ *   at build time from env, so it's baked into the middleware output).
  * - img-src allows GitHub avatars and DiceBear identicons.
  * - Freighter wallet extension content scripts are not blocked by CSP
  *   (browser extensions inject with extension privileges).
@@ -64,12 +60,16 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Strict-Transport-Security", value: "max-age=86400" },
   {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  },
+  {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com data:",
+      "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com https://github.com https://user-images.githubusercontent.com https://private-user-images.githubusercontent.com https://raw.githubusercontent.com https://camo.githubusercontent.com data:",
       "font-src 'self'",
       `connect-src 'self' ${apiOrigin}`,
       "frame-ancestors 'none'",

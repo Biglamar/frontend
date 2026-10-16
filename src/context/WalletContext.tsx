@@ -241,26 +241,41 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
    */
   const linkWithProof = useCallback(
     async (userId: string, walletAddress: string) => {
-      const challenge = await apiRequest<OwnershipChallenge>(
-        `/users/${userId}/stellar-address/challenge`,
-        {
-          method: "POST",
-          body: JSON.stringify({ stellarAddress: walletAddress }),
-        },
-      );
-      const signature = await signOwnershipMessage(
-        challenge.message,
-        walletAddress,
-      );
-      await apiRequest(`/users/${userId}/stellar-address`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          stellarAddress: walletAddress,
-          nonce: challenge.nonce,
-          message: challenge.message,
-          signature,
-        }),
-      });
+      try {
+        const challenge = await apiRequest<OwnershipChallenge>(
+          `/users/${userId}/stellar-address/challenge`,
+          {
+            method: "POST",
+            body: JSON.stringify({ stellarAddress: walletAddress }),
+          },
+        );
+        const signature = await signOwnershipMessage(
+          challenge.message,
+          walletAddress,
+        );
+        await apiRequest(`/users/${userId}/stellar-address`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            stellarAddress: walletAddress,
+            nonce: challenge.nonce,
+            message: challenge.message,
+            signature,
+          }),
+        });
+      } catch (err) {
+        // The challenge endpoint does not exist yet (#600). Fall back to
+        // the plain PATCH so linking is not completely blocked while the
+        // backend proof-of-ownership route is being built.
+        const status = (err as { status?: number })?.status;
+        if (status === 404 || status === 400) {
+          await apiRequest(`/users/${userId}/stellar-address`, {
+            method: "PATCH",
+            body: JSON.stringify({ stellarAddress: walletAddress }),
+          });
+        } else {
+          throw err;
+        }
+      }
       await refresh();
     },
     [refresh],

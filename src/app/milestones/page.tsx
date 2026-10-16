@@ -5,6 +5,7 @@ import { mockMilestones, mockMaintenancePools } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/utils";
 import { MilestoneFundButton, PoolDepositButton } from "./MilestoneActions";
 import { MilestoneFundingProgress } from "./MilestoneFundingProgress";
+import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
 import { Button } from "@/components/ui/Button";
@@ -77,6 +78,42 @@ export default async function MilestonesPage() {
               </Link>
             }
           />
+        ) : milestones.map((m) => {
+          const isUnfunded = m.budget <= 0;
+          const rawPct = isUnfunded ? 0 : m.distributed / m.budget;
+          const pct = Math.min(rawPct, 1);
+          return (
+            <Card key={m.id}>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{m.repo}</p>
+              <h3 className="mt-1 font-medium text-slate-900 dark:text-white">{m.name}</h3>
+              <div className="mt-4" role="progressbar" aria-label="Payout progress" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div
+                    className="h-full bg-indigo-600"
+                    style={{ width: `${pct * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+                <span>
+                  {formatCurrency(m.distributed, m.asset)} of{" "}
+                  {formatCurrency(m.budget, m.asset)} paid
+                </span>
+                <span>
+                  {isUnfunded
+                    ? "Not yet funded"
+                    : rawPct > 1
+                    ? "Over-funded"
+                    : formatPercent(rawPct)}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                {m.completedCount} of {m.issueCount} issues complete
+              </p>
+              <MilestoneFundButton milestoneId={m.id} milestoneName={m.name} />
+            </Card>
+          );
+        })}
         ) : (
           milestones.map((m) => {
             // Fundable remainder for the amount input's default and cap. A
@@ -88,12 +125,22 @@ export default async function MilestonesPage() {
               m.budget > 0 ? Math.max(m.budget - m.distributed, 0) : undefined;
             return (
               <Card key={m.id}>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {m.repo}
-                </p>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {m.repo}
+                  </p>
+                  <Badge className={m.status === "open" ? "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30" : undefined}>
+                    {m.status}
+                  </Badge>
+                </div>
                 <h3 className="mt-1 font-medium text-slate-900 dark:text-white">
                   {m.name}
                 </h3>
+                {m.deadline && (
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                    Deadline: {m.deadline}
+                  </p>
+                )}
                 <MilestoneFundingProgress
                   budget={m.budget}
                   distributed={m.distributed}
@@ -102,12 +149,14 @@ export default async function MilestonesPage() {
                 <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
                   {m.completedCount} of {m.issueCount} issues complete
                 </p>
-                <MilestoneFundButton
-                  milestoneId={m.id}
-                  milestoneName={m.name}
-                  remainingBudget={remainingBudget}
-                  asset={m.asset}
-                />
+                {m.status === "open" && (
+                  <MilestoneFundButton
+                    milestoneId={m.id}
+                    milestoneName={m.name}
+                    remainingBudget={remainingBudget}
+                    asset={m.asset}
+                  />
+                )}
               </Card>
             );
           })
@@ -138,9 +187,21 @@ export default async function MilestonesPage() {
         ) : (
           pools.map((pool) => (
             <Card key={pool.id}>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {pool.repo}
-              </p>
+              <div className="flex items-start justify-between">
+                <div>
+                  {pool.name && (
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">
+                      {pool.name}
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {pool.repo}
+                  </p>
+                </div>
+                <Badge className={pool.status === "active" ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30" : undefined}>
+                  {pool.status}
+                </Badge>
+              </div>
               <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
                 {formatCurrency(pool.balance, pool.asset)} balance
               </p>
@@ -148,11 +209,13 @@ export default async function MilestonesPage() {
                 {formatCurrency(pool.monthlyDeposit, pool.asset)} deposited
                 monthly
               </p>
-              <PoolDepositButton
-                poolId={pool.id}
-                poolRepo={pool.repo}
-                asset={pool.asset}
-              />
+              {pool.status === "active" && (
+                <PoolDepositButton
+                  poolId={pool.id}
+                  poolRepo={pool.repo}
+                  asset={pool.asset}
+                />
+              )}
             </Card>
           ))
         )}

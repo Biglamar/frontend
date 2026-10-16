@@ -30,11 +30,11 @@ export const NETWORK_PASSPHRASES: Record<StellarNetwork, string> = {
  * Returns null if the extension doesn't support getNetwork or isn't
  * reachable — callers should treat null as "unknown, proceed with caution."
  */
-export async function getFreighterNetwork(): Promise<string | null> {
+export async function getFreighterNetworkPassphrase(): Promise<string | null> {
   try {
     const result = await getNetwork();
-    if (result.error || !result.network) return null;
-    return result.network;
+    if (result.error || !result.networkPassphrase) return null;
+    return result.networkPassphrase;
   } catch {
     return null;
   }
@@ -46,11 +46,11 @@ export async function getFreighterNetwork(): Promise<string | null> {
  * null if they match (or the check couldn't be performed).
  */
 export async function checkNetworkMismatch(): Promise<string | null> {
-  const freighterNetwork = await getFreighterNetwork();
-  if (!freighterNetwork) return null;
+  const freighterPassphrase = await getFreighterNetworkPassphrase();
+  if (!freighterPassphrase) return null;
   const expected = NETWORK_PASSPHRASES[STELLAR_NETWORK];
   if (!expected) return null;
-  if (freighterNetwork === expected) return null;
+  if (freighterPassphrase === expected) return null;
   return `Your Freighter wallet is on the wrong network. Switch it to ${STELLAR_NETWORK === "PUBLIC" ? "Mainnet" : "Testnet"} and try again.`;
 }
 

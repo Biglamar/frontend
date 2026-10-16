@@ -18,9 +18,11 @@ const ESCROW_STATUS_LABELS: Record<BountyStatus, string> = {
   claimed: "Funds locked",
   in_review: "Funds locked",
   merged: "Funds locked",
+  release_failed: "Payout failed — funds still locked",
   paid: "Paid out",
   refunded: "Refunded to sponsor",
   expired: "Expired, unclaimed",
+  unknown: "Status unavailable",
 };
 
 export async function generateMetadata({

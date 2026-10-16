@@ -31,11 +31,14 @@ export function Avatar({
   src,
   size = 32,
   className,
+  alt,
 }: {
   seed: string;
   src?: string;
   size?: number;
   className?: string;
+  /** Alt text override. Use empty string when the avatar is decorative (next to a visible name). */
+  alt?: string;
 }) {
   const fallback = seedToUrl(seed);
   const requested = src && isSafeAvatarUrl(src) ? src : fallback;
@@ -52,6 +55,8 @@ export function Avatar({
 
   return (
     <Image
+      src={src ?? seedToUrl(seed)}
+      alt={alt ?? seed}
       src={resolved}
       alt={seed}
       width={size}
