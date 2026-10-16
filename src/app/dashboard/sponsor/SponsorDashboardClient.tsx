@@ -29,6 +29,14 @@ interface SponsorDashboardData {
   totalSpent: number;
   budgetLocked: number;
   repoCount: number;
+  recentPayments: Array<{
+    id: string;
+    recipient: string;
+    amount: number;
+    asset: string;
+    txHash: string;
+    createdAt: string;
+  }>;
 }
 
 const spendChartData = sponsorSpendHistory.map((value, i) => ({
@@ -72,6 +80,14 @@ export default function SponsorDashboardClient() {
       totalSpent: number;
       budgetLocked: number;
       activeMilestones: RawMilestone[];
+      recentPayments?: Array<{
+        id: string;
+        recipient: string;
+        amount: number;
+        asset: string;
+        txHash: string;
+        createdAt: string;
+      }>;
     }>(`/sponsors/${user.id}/dashboard`)
       .then((raw) => {
         const activeBounties = raw.activeBounties.map(adaptBounty);
@@ -81,6 +97,7 @@ export default function SponsorDashboardClient() {
           totalSpent: raw.totalSpent,
           budgetLocked: raw.budgetLocked,
           repoCount,
+          recentPayments: raw.recentPayments ?? [],
         });
         setFetchStatus("loaded");
         setIsLive(true);
@@ -235,14 +252,45 @@ export default function SponsorDashboardClient() {
 
       <div className="mt-10 flex items-center gap-2">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Recent activity</h2>
-        {isLive && (
+        {!isLive && (
           <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
             Sample data
           </span>
         )}
       </div>
       <div className="mt-4">
-        <ActivityList events={recentActivity.slice(0, 5)} />
+        {isLive && data?.recentPayments && data.recentPayments.length > 0 ? (
+          <div className="space-y-3">
+            {data.recentPayments.slice(0, 5).map((payment) => (
+              <div
+                key={payment.id}
+                className="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">
+                    Paid {payment.recipient}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {new Date(payment.createdAt).toLocaleDateString()} ·{" "}
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/tx/${payment.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-500 hover:underline"
+                    >
+                      View transaction
+                    </a>
+                  </p>
+                </div>
+                <span className="font-medium text-slate-900 dark:text-white">
+                  {formatCurrency(payment.amount)} {payment.asset}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <ActivityList events={recentActivity.slice(0, 5)} />
+        )}
       </div>
 
       {/* Dev-only: visual kitchen sink — renders all four StatCard states

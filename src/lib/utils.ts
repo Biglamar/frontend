@@ -97,6 +97,8 @@ export function parseMoneyInput(
     return { valid: false, error: "Enter a deposit amount." };
   }
 
+  // Use Number only for range checks, not for normalization.
+  // Normalization is done string-based to avoid precision loss on large amounts.
   const num = Number(trimmed);
 
   if (!Number.isFinite(num)) {
@@ -117,13 +119,17 @@ export function parseMoneyInput(
     };
   }
 
-  // Normalize: convert to a canonical decimal string with the right precision.
-  // Use toLocaleString with fixed fraction digits to get a clean representation,
-  // then strip thousands separators.
-  const normalized = num.toLocaleString("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: maxDecimals,
-  }).replace(/,/g, "");
+  // Normalize: string-based normalization to avoid precision loss.
+  // Trim trailing zeros and pad to maxDecimals if needed.
+  let normalized = trimmed;
+  if (normalized.includes(".")) {
+    // Trim trailing zeros after decimal point
+    normalized = normalized.replace(/\.?0+$/, "");
+    // If we removed everything after decimal, remove the decimal too
+    if (normalized.endsWith(".")) {
+      normalized = normalized.slice(0, -1);
+    }
+  }
 
   return { valid: true, normalized };
 }
