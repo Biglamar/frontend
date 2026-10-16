@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
 
 type Role = "contributor" | "maintainer" | "sponsor";
 
@@ -20,23 +21,30 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const navByRole: Record<Role, NavItem[]> = {
-  contributor: [
-    { label: "Overview", href: "/dashboard/contributor", icon: LayoutDashboard },
-    { label: "Browse bounties", href: "/issues", icon: GitPullRequest },
-    { label: "Reputation", href: "/reputation/priyaeth", icon: Trophy },
-  ],
-  maintainer: [
-    { label: "Overview", href: "/dashboard/maintainer", icon: LayoutDashboard },
-    { label: "Bounty pipeline", href: "/issues", icon: GitPullRequest },
-    { label: "Milestones", href: "/milestones", icon: Milestone },
-  ],
-  sponsor: [
-    { label: "Overview", href: "/dashboard/sponsor", icon: LayoutDashboard },
-    { label: "Bounties funded", href: "/issues", icon: Receipt },
-    { label: "Milestones", href: "/milestones", icon: Milestone },
-  ],
-};
+function navForRole(role: Role, username?: string): NavItem[] {
+  switch (role) {
+    case "contributor":
+      return [
+        { label: "Overview", href: "/dashboard/contributor", icon: LayoutDashboard },
+        { label: "Browse bounties", href: "/issues", icon: GitPullRequest },
+        ...(username
+          ? [{ label: "Reputation", href: `/reputation/${username}`, icon: Trophy }]
+          : []),
+      ];
+    case "maintainer":
+      return [
+        { label: "Overview", href: "/dashboard/maintainer", icon: LayoutDashboard },
+        { label: "Bounty pipeline", href: "/issues", icon: GitPullRequest },
+        { label: "Milestones", href: "/milestones", icon: Milestone },
+      ];
+    case "sponsor":
+      return [
+        { label: "Overview", href: "/dashboard/sponsor", icon: LayoutDashboard },
+        { label: "Bounties funded", href: "/issues", icon: Receipt },
+        { label: "Milestones", href: "/milestones", icon: Milestone },
+      ];
+  }
+}
 
 const roleSwitcher: { role: Role; label: string; href: string }[] = [
   { role: "contributor", label: "Contributor", href: "/dashboard/contributor" },
@@ -60,7 +68,8 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const items = navByRole[role];
+  const { user } = useAuth();
+  const items = navForRole(role, user?.username);
 
   return (
     <div className="mx-auto flex max-w-7xl gap-8 px-6 py-10">

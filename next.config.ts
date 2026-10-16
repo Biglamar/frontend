@@ -64,12 +64,16 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Strict-Transport-Security", value: "max-age=86400" },
   {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  },
+  {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com data:",
+      "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com https://github.com https://user-images.githubusercontent.com https://private-user-images.githubusercontent.com https://raw.githubusercontent.com https://camo.githubusercontent.com data:",
       "font-src 'self'",
       `connect-src 'self' ${apiOrigin}`,
       "frame-ancestors 'none'",
