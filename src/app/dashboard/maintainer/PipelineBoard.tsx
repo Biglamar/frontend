@@ -24,22 +24,27 @@ export const pipelineStages: { status: BountyStatus; label: string }[] = [
   { status: "claimed", label: "Claimed" },
   { status: "in_review", label: "In review" },
   { status: "merged", label: "Awaiting payout" },
+  { status: "release_failed", label: "Payout failed" },
 ];
 
 // Statuses excluded from "Value locked in escrow" on the page above: "open"
 // hasn't been funded yet (nothing in escrow to lock), and
-// "paid"/"refunded"/"expired" have already left escrow. Every other status
-// -- "funded", "claimed", "in_review", "merged" -- is still escrow-locked
-// and must have a corresponding entry in pipelineStages above. Kept in the
-// same file as pipelineStages specifically so the two can't silently drift
-// apart the way they did before #88 (the stat counted "merged" as
-// escrow-locked while the board had no column for it) -- see the
-// consistency test in PipelineBoard.test.tsx.
+// "paid"/"refunded"/"expired" have already left escrow. "release_failed" and
+// "unknown" are also excluded: release_failed still holds funds but is a
+// break-glass state tracked on its own column, and unknown is not a real
+// escrow state. Every other status -- "funded", "claimed", "in_review",
+// "merged" -- is still escrow-locked and must have a corresponding entry in
+// pipelineStages above. Kept in the same file as pipelineStages specifically
+// so the two can't silently drift apart the way they did before #88 (the stat
+// counted "merged" as escrow-locked while the board had no column for it) --
+// see the consistency test in PipelineBoard.test.tsx.
 export const ESCROW_LOCKED_EXCLUDED_STATUSES: BountyStatus[] = [
   "open",
+  "release_failed",
   "paid",
   "refunded",
   "expired",
+  "unknown",
 ];
 
 // Cap per-column rendering so a busy repo's pipeline (potentially hundreds
@@ -47,14 +52,22 @@ export const ESCROW_LOCKED_EXCLUDED_STATUSES: BountyStatus[] = [
 // list of cards on every dashboard visit (#226).
 const MAX_VISIBLE_PER_COLUMN = 8;
 
-function PipelineColumn({ label, bounties }: { label: string; bounties: Bounty[] }) {
+function PipelineColumn({
+  label,
+  bounties,
+}: {
+  label: string;
+  bounties: Bounty[];
+}) {
   const visible = bounties.slice(0, MAX_VISIBLE_PER_COLUMN);
   const hiddenCount = bounties.length - visible.length;
 
   return (
     <div className="min-w-0 flex-1">
       <div className="flex items-center justify-between px-1">
-        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</p>
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+          {label}
+        </p>
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
           {bounties.length}
         </span>
@@ -65,6 +78,7 @@ function PipelineColumn({ label, bounties }: { label: string; bounties: Bounty[]
             key={b.id}
             href={`/issues/${b.id}`}
             title={b.title}
+            aria-label={`${b.title}, ${formatCurrency(b.reward, b.asset)}`}
             className="block rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-colors hover:border-indigo-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700"
           >
             <p className="truncate text-xs text-slate-400 dark:text-slate-500">
@@ -102,6 +116,16 @@ function PipelineColumn({ label, bounties }: { label: string; bounties: Bounty[]
  * `bounties`, testable without mocking data-fetching, DashboardShell, etc.
  */
 export function PipelineBoard({ bounties }: { bounties: Bounty[] }) {
+  const byStatus = new Map<BountyStatus, Bounty[]>();
+  for (const bounty of bounties) {
+    const group = byStatus.get(bounty.status);
+    if (group) {
+      group.push(bounty);
+    } else {
+      byStatus.set(bounty.status, [bounty]);
+    }
+  }
+
   return (
     <Card className="mt-8">
       <h2 className="font-medium text-slate-900 dark:text-white">Pipeline</h2>
@@ -110,7 +134,7 @@ export function PipelineBoard({ bounties }: { bounties: Bounty[] }) {
           <PipelineColumn
             key={stage.status}
             label={stage.label}
-            bounties={bounties.filter((b) => b.status === stage.status)}
+            bounties={byStatus.get(stage.status) ?? []}
           />
         ))}
       </div>

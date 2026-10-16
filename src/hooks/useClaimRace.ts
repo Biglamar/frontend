@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiPost, fetchBounty } from '@/lib/api';
+import { adaptBounty, type RawBounty } from '@/lib/adapters';
 import type { Bounty, ClaimResult } from '@/types/bounty';
 
 interface ApiError {
@@ -10,19 +11,41 @@ interface ApiError {
 export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty) => void) {
   const [isClaiming, setIsClaiming] = useState(false);
   const [lastResult, setLastResult] = useState<ClaimResult | null>(null);
+  // Mirrors useSmartPolling (#361): the claim request can still be in flight
+  // when the caller unmounts (e.g. navigating away right after "Claim"), so
+  // skip state updates once unmounted. Set to true in the effect body too so
+  // React Strict Mode's simulated unmount/remount doesn't leave it false.
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const recordResult = useCallback((result: ClaimResult) => {
+    if (isMountedRef.current) {
+      setLastResult(result);
+    }
+    return result;
+  }, []);
 
   const claim = useCallback(async (): Promise<ClaimResult> => {
     setIsClaiming(true);
     
     try {
-      const response = await apiPost<{ data: Bounty }>(`/bounties/${bountyId}/claim`, {});
+      const raw = await apiPost<RawBounty>(`/bounties/${bountyId}/claim`, {});
       
+      const bounty = adaptBounty(raw);
       const result: ClaimResult = {
         success: true,
-        bounty: response.data,
+        bounty,
       };
-      setLastResult(result);
-      onClaimSuccess?.(response.data);
+      recordResult(result);
+      if (isMountedRef.current) {
+        onClaimSuccess?.(bounty);
+      }
       return result;
     } catch (error) {
       const apiError = error as ApiError;
@@ -39,15 +62,13 @@ export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty)
             error: 'ALREADY_CLAIMED',
             bounty: updatedResult?.data,
           };
-          setLastResult(result);
-          return result;
+          return recordResult(result);
         } catch {
           const result: ClaimResult = {
             success: false,
             error: 'ALREADY_CLAIMED',
           };
-          setLastResult(result);
-          return result;
+          return recordResult(result);
         }
       }
 
@@ -56,12 +77,13 @@ export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty)
         error: 'NETWORK_ERROR',
         message: apiError?.message || 'Network error occurred',
       };
-      setLastResult(result);
-      return result;
+      return recordResult(result);
     } finally {
-      setIsClaiming(false);
+      if (isMountedRef.current) {
+        setIsClaiming(false);
+      }
     }
-  }, [bountyId, onClaimSuccess]);
+  }, [bountyId, onClaimSuccess, recordResult]);
 
   const reset = useCallback(() => {
     setLastResult(null);

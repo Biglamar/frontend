@@ -7,6 +7,8 @@
 
 import {
   formatCurrency,
+  formatDaysUntil,
+  formatInteger,
   formatPercent,
   parseMoneyInput,
   coerceDecimal,
@@ -18,6 +20,8 @@ import {
   generateIdempotencyKey,
   toCents,
   toMajorUnits,
+  sumMoney,
+  subtractMoney,
 } from "./utils";
 
 // ─── formatCurrency ──────────────────────────────────────────────────────────
@@ -218,27 +222,27 @@ describe("coerceStatus", () => {
   it("accepts all valid BountyStatus values", () => {
     const statuses = [
       "open", "funded", "claimed", "in_review",
-      "merged", "paid", "refunded", "expired",
+      "merged", "release_failed", "paid", "refunded", "expired", "unknown",
     ] as const;
     for (const s of statuses) {
       expect(coerceStatus(s)).toBe(s);
     }
   });
 
-  it("falls back to 'open' for an unrecognized string", () => {
-    expect(coerceStatus("banana")).toBe("open");
+  it("falls back to 'unknown' for an unrecognized string", () => {
+    expect(coerceStatus("banana")).toBe("unknown");
   });
 
-  it("falls back to 'open' for null", () => {
-    expect(coerceStatus(null)).toBe("open");
+  it("falls back to 'unknown' for null", () => {
+    expect(coerceStatus(null)).toBe("unknown");
   });
 
-  it("falls back to 'open' for undefined", () => {
-    expect(coerceStatus(undefined)).toBe("open");
+  it("falls back to 'unknown' for undefined", () => {
+    expect(coerceStatus(undefined)).toBe("unknown");
   });
 
-  it("falls back to 'open' for empty string", () => {
-    expect(coerceStatus("")).toBe("open");
+  it("falls back to 'unknown' for empty string", () => {
+    expect(coerceStatus("")).toBe("unknown");
   });
 });
 
@@ -443,3 +447,183 @@ describe("toMajorUnits", () => {
     expect(toMajorUnits(1, 7)).toBe(0.0000001);
   });
 });
+
+// ─── Negative amounts + sumMoney / subtractMoney (#353) ──────────────────────
+
+describe("toCents with negative amounts (#353)", () => {
+  it("applies the sign to the whole amount", () => {
+    expect(toCents("-12.50")).toBe(-1250);
+    expect(toCents(-12.5)).toBe(-1250);
+    expect(toCents("-0.01")).toBe(-1);
+    expect(toCents("-0.0000001", 7)).toBe(-1);
+  });
+
+  it("accepts an explicit plus sign and surrounding whitespace", () => {
+    expect(toCents("+12.50")).toBe(1250);
+    expect(toCents(" 12.50 ")).toBe(1250);
+  });
+
+  it("round-trips negatives through toMajorUnits", () => {
+    expect(toMajorUnits(toCents("-12.34"))).toBe(-12.34);
+  });
+});
+
+describe("sumMoney (#353)", () => {
+  it("sums without float drift", () => {
+    expect(0.1 + 0.2).not.toBe(0.3);
+    expect(sumMoney([0.1, 0.2])).toBe(0.3);
+    expect(sumMoney(["19.99", "0.01", 5.1])).toBe(25.1);
+  });
+
+  it("returns 0 for an empty list", () => {
+    expect(sumMoney([])).toBe(0);
+  });
+
+  it("respects XLM precision", () => {
+    expect(sumMoney(["0.0000001", "0.0000002"], 7)).toBe(0.0000003);
+    expect(sumMoney([1250.5, 8412.1234567], 7)).toBe(9662.6234567);
+  });
+});
+
+describe("subtractMoney (#353)", () => {
+  it("subtracts without float drift", () => {
+    expect(0.3 - 0.1).not.toBe(0.2);
+    expect(subtractMoney(0.3, 0.1)).toBe(0.2);
+    expect(subtractMoney(24000, 15800)).toBe(8200);
+  });
+
+  it("returns a correctly signed negative result", () => {
+    expect(subtractMoney("10.25", "12.50")).toBe(-2.25);
+  });
+
+  it("respects XLM precision", () => {
+    expect(subtractMoney("1", "0.0000001", 7)).toBe(0.9999999);
+  });
+});
+
+// ─── Locale-aware formatting (#456) ──────────────────────────────────────────
+//
+// Every assertion below would pass identically in every locale if the
+// implementation still hardcoded "en-US". That is exactly the regression
+// these guard: a de-DE or fr-FR viewer previously saw US number formatting
+// everywhere, because the four call sites passed a literal "en-US".
+
+describe("formatCurrency — follows the viewer's locale, not a hardcoded en-US", () => {
+  it("uses en-US grouping when the locale is en-US", () => {
+    expect(formatCurrency(1234567.89, "USDC", "en-US")).toBe("1,234,567.89 USDC");
+  });
+
+  it("uses de-DE separators when the locale is de-DE", () => {
+    expect(formatCurrency(1234567.89, "USDC", "de-DE")).toBe("1.234.567,89 USDC");
+    expect(formatCurrency(-1234.5, "USDC", "de-DE")).toBe("-1.234,5 USDC");
+  });
+
+  it("uses fr-FR separators when the locale is fr-FR", () => {
+    expect(formatCurrency(1234.5, "USDC", "fr-FR")).toMatch(/1\u202f?234,5 USDC/);
+  });
+
+  it("keeps the sanity-ceiling warning in every locale", () => {
+    expect(formatCurrency(2_000_000_000, "USDC", "en-US")).toBe("2,000,000,000 USDC ⚠");
+    expect(formatCurrency(2_000_000_000, "USDC", "de-DE")).toBe("2.000.000.000 USDC ⚠");
+  });
+
+  it("does not attach the warning to a non-finite amount", () => {
+    // `Math.abs(Infinity) > SANITY_CEILING` is true, so the ceiling must not be
+    // evaluated before the non-finite guard.
+    expect(formatCurrency(Infinity, "USDC", "en-US")).toBe("0 USDC");
+    expect(formatCurrency(NaN, "XLM", "en-US")).toBe("0 XLM");
+  });
+});
+
+describe("formatPercent — follows the viewer's locale", () => {
+  it("renders the CLDR-correct form per locale", () => {
+    expect(formatPercent(0.94, "en-US")).toBe("94%");
+    // German puts a non-breaking space before the percent sign.
+    expect(formatPercent(0.94, "de-DE")).toMatch(/94\s*%/);
+  });
+
+  it("still clamps out-of-range input in every locale", () => {
+    expect(formatPercent(1.5, "en-US")).toBe("100%");
+    expect(formatPercent(-1, "en-US")).toBe("0%");
+  });
+});
+
+describe("formatDaysUntil — pluralization via Intl.PluralRules", () => {
+  it("uses the singular branch for exactly one day", () => {
+    expect(formatDaysUntil(1, "en")).toBe("1 day left");
+  });
+
+  it("uses the plural branch for zero and many", () => {
+    expect(formatDaysUntil(0, "en")).toBe("Deadline passed");
+    expect(formatDaysUntil(5, "en")).toBe("5 days left");
+  });
+
+  it("keeps the no-deadline and passed-past copy", () => {
+    expect(formatDaysUntil(null, "en")).toBe("No deadline");
+    expect(formatDaysUntil(-3, "en")).toBe("Deadline passed");
+  });
+});
+
+describe("parseMoneyInput — accepts the viewer's own number notation (#456)", () => {
+  // The old implementation round-tripped through
+  // `toLocaleString("en-US").replace(/,/g, "")`, which only strips ASCII
+  // commas. Under any other locale that left the locale's own separators in
+  // the string and posted a corrupt amount to the backend — de-DE "12.500"
+  // (three decimals), fr-FR "12 500" (a non-breaking space surviving into the
+  // wire format).
+  it("normalizes de-DE grouped input to the canonical dot-decimal form", () => {
+    const r = parseMoneyInput("1.234,56", "USDC", "de-DE");
+    expect(r).toEqual({ valid: true, normalized: "1234.56" });
+  });
+
+  it("normalizes fr-FR grouped input to the canonical dot-decimal form", () => {
+    const r = parseMoneyInput("1\u202f234,56", "USDC", "fr-FR");
+    expect(r).toEqual({ valid: true, normalized: "1234.56" });
+  });
+
+  it("still accepts plain dot-decimal input in a comma locale", () => {
+    // <input type="number"> always produces dot-decimal per the HTML spec, so
+    // a de-DE user typing into a number input must not be rejected.
+    const r = parseMoneyInput("1234.56", "USDC", "de-DE");
+    expect(r).toEqual({ valid: true, normalized: "1234.56" });
+  });
+
+  it("enforces the per-asset precision on locale-formatted input", () => {
+    // 8 decimal places — one more than XLM allows.
+    const r = parseMoneyInput("1.234,56789012", "XLM", "de-DE");
+    expect(r.valid).toBe(false);
+    expect(r.error).toContain("7 decimal places");
+  });
+
+  it("reads a bare de-DE \"1.234\" as 1.234, never as 1234", () => {
+    // In de-DE "." is the *group* separator, so stripping it would turn a
+    // deposit of 1.234 into 1234 — a 1000x overstatement. A dot is only
+    // treated as grouping when the input also carries the locale's decimal
+    // mark, which is what proves the user meant the locale's notation.
+    const r = parseMoneyInput("1.234", "XLM", "de-DE");
+    expect(r).toEqual({ valid: true, normalized: "1.234" });
+  });
+
+  it("reads a grouped de-DE value as grouping, not as a decimal", () => {
+    // With the locale's decimal mark present, the dot is unambiguously grouping.
+    const r = parseMoneyInput("1.234,5", "XLM", "de-DE");
+    expect(r).toEqual({ valid: true, normalized: "1234.5" });
+  });
+
+  it("rejects two decimal separators rather than guessing", () => {
+    const r = parseMoneyInput("1.2.3", "USDC", "en-US");
+    expect(r).toEqual({ valid: false, error: "Enter a valid number." });
+  });
+
+  it("is unchanged for en-US input", () => {
+    expect(parseMoneyInput("12.50", "USDC", "en-US")).toEqual({ valid: true, normalized: "12.5" });
+  });
+});
+
+describe("formatInteger", () => {
+  it("groups per locale", () => {
+    expect(formatInteger(12345, "en-US")).toBe("12,345");
+    expect(formatInteger(12345, "de-DE")).toBe("12.345");
+  });
+});
+

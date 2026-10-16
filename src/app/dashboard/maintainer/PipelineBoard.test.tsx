@@ -86,9 +86,11 @@ describe("PipelineBoard / escrow-stat consistency (#88)", () => {
       "claimed",
       "in_review",
       "merged",
+      "release_failed",
       "paid",
       "refunded",
       "expired",
+      "unknown",
     ];
     const escrowLockedStatuses = allStatuses.filter(
       (status) => !ESCROW_LOCKED_EXCLUDED_STATUSES.includes(status),

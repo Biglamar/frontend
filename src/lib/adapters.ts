@@ -59,6 +59,11 @@ export interface RawBounty {
   escrowId: string | null;
   issue?: RawIssue;
   claimedBy?: RawUser | null;
+  // Nullable column on mergefi-backend's Bounty entity — the sponsor of a
+  // bounty that was created without one (or before the column existed) comes
+  // back as `null`, not as a missing key. Normalized to `undefined` below so
+  // callers can rely on a single "unknown funder" representation.
+  sponsorId?: string | null;
   team?: { splits?: RawTeamSplit[] } | null;
 }
 
@@ -92,8 +97,23 @@ export interface RawBounty {
  *   backend endpoint (bounties filtered by milestoneId) or fetching every
  *   bounty on a funding-overview page just to filter client-side —
  *   real new scope, not a natural extension of restoring this mapping.
+ *
+ * Contrast with `sponsorId`: unlike `issue`/`claimedBy`/`team`, sponsor is a
+ * plain column on the Bounty row (not a relation that needs a `relations`
+ * option to hydrate), so it is present on live responses today regardless of
+ * that gap.
  */
-export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { valid: boolean; sum: number; message?: string } } {
+/**
+ * Returns the domain `Bounty` type. `teamSplitsValid` is declared on
+ * `Bounty` itself (src/types/bounty.ts) rather than intersected onto this
+ * function's return type: an adapter-local intersection is invisible to any
+ * consumer typed as the plain `Bounty` (fetchBounties returns `Bounty[]`, so
+ * every caller narrowed to that type structurally lost access to the field —
+ * the type-level half of the "computed but never consumed" bug, where
+ * adaptBounty computed and attached a validity flag that no component could
+ * read).
+ */
+export function adaptBounty(raw: RawBounty): Bounty {
   const splits = raw.team?.splits?.map(
     (split): TeamSplit => ({
       role: split.role ?? "Contributor",
@@ -121,6 +141,7 @@ export function adaptBounty(raw: RawBounty): Bounty & { teamSplitsValid?: { vali
     labels: raw.issue?.labels ?? [],
     claimedBy: raw.claimedBy?.username,
     claimedById: raw.claimedBy?.id,
+    sponsorId: raw.sponsorId ?? undefined,
     milestoneId: raw.issue?.milestoneId ?? undefined,
     escrowId: raw.escrowId ?? undefined,
     teamSplits: splits,
@@ -134,39 +155,56 @@ export interface RawMilestone {
   budget: string;
   distributed: string;
   asset: "USDC" | "XLM";
+  status?: string;
+  deadline?: string | null;
   repository?: RawRepository;
   issues?: { state: "open" | "closed" }[];
 }
 
 export function adaptMilestone(raw: RawMilestone): Milestone {
   const issues = raw.issues ?? [];
+  const budget = coerceNonNegative(raw.budget);
+  const distributed = coerceNonNegative(raw.distributed);
   return {
     id: raw.id,
     name: raw.title,
     repo: raw.repository ? `${raw.repository.owner}/${raw.repository.name}` : "unassigned",
-    budget: coerceNonNegative(raw.budget),
-    distributed: coerceNonNegative(raw.distributed),
+    budget,
+    distributed,
     asset: raw.asset,
+    status: raw.status ?? "open",
+    deadline: raw.deadline ?? null,
     issueCount: issues.length,
-    completedCount: issues.filter((i) => i.state === "closed").length,
+    // #615 — base progress on payouts (distributed / budget), not on
+    // GitHub-closed issue counts. Issues closed as "not planned", or closed
+    // by a merge but not yet paid, previously inflated this number so the
+    // progress bar disagreed with the money actually paid out. When budget
+    // is zero (not yet funded), fall back to 0 rather than a meaningless
+    // division.
+    completedCount:
+      budget > 0 ? Math.floor((distributed / budget) * issues.length) : 0,
   };
 }
 
 export interface RawMaintenancePool {
   id: string;
+  name?: string | null;
   monthlyDeposit: string;
   balance: string;
   asset: "USDC" | "XLM";
+  status?: string;
   repository?: RawRepository | null;
 }
 
 export function adaptMaintenancePool(raw: RawMaintenancePool): MaintenancePool {
   return {
     id: raw.id,
+    name: raw.name ?? null,
     repo: raw.repository ? `${raw.repository.owner}/${raw.repository.name}` : "platform-wide",
     monthlyDeposit: coerceNonNegative(raw.monthlyDeposit),
     balance: coerceNonNegative(raw.balance),
     asset: raw.asset,
+    status: raw.status ?? "active",
   };
 }
 
@@ -183,6 +221,13 @@ export interface RawReputationSnapshot {
 export interface RawUserProfile {
   username: string;
   avatarUrl: string | null;
+  /**
+   * mergefi-backend has no such field on its user entity yet. Read
+   * defensively so this is a no-op until it lands, and so an explicitly
+   * non-public profile can never be indexed by omission: anything other than
+   * `true` means "not indexable" (see src/lib/seo-policy.ts).
+   */
+  isProfilePublic?: boolean | null;
 }
 
 export function adaptReputation(
@@ -208,5 +253,6 @@ export function adaptReputation(
           .map(([lang]) => lang)
       : [],
     organizations: snapshot?.orgsContributedTo ?? [],
+    indexable: user.isProfilePublic === true,
   };
 }
