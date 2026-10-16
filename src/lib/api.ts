@@ -228,6 +228,32 @@ export async function fetchMaintenancePools(
   }
 }
 
+export interface MaintainerRepository {
+  org: string;
+  repo: string;
+  url: string;
+}
+
+export async function fetchMyRepositories(
+  fallback: MaintainerRepository[],
+): Promise<FetchResult<MaintainerRepository[]>> {
+  try {
+    const raw = await request<
+      { id: string; org: string; name: string; htmlUrl: string }[]
+    >("/repositories/my");
+    return {
+      data: raw.map((r) => ({
+        org: r.org,
+        repo: r.name,
+        url: r.htmlUrl,
+      })),
+      source: "live",
+    };
+  } catch {
+    return { data: fallback, source: "mock" };
+  }
+}
+
 export async function fetchReputationByUsername(
   username: string,
   fallback: ReputationProfile | null,

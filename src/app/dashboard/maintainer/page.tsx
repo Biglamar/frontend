@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Layers, Clock, Coins, FolderGit2, CheckCircle2 } from "lucide-react";
-import { fetchBounties } from "@/lib/api";
+import { Layers, Clock, Coins, FolderGit2, CheckCircle2, GitBranch } from "lucide-react";
+import { fetchBounties, fetchMyRepositories } from "@/lib/api";
 import { mockBounties, recentActivity, bountiesCompletedSparkline } from "@/lib/mock-data";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { ActivityList } from "@/components/dashboard/ActivityList";
@@ -29,8 +29,18 @@ export default async function MaintainerDashboardPage() {
   // fetch, so this reliably distinguishes "live data" from "backend down,
   // showing mockBounties" without changing fetchBounties' shared contract
   // (#240).
-  const { data: bounties, source } = await fetchBounties(mockBounties);
+  const { data: allBounties, source } = await fetchBounties(mockBounties);
   const statStatus: "loaded" | "error" = source === "live" ? "loaded" : "error";
+
+  // Filter bounties to only those belonging to the maintainer's own
+  // repositories (#641). When no repositories are connected, show an
+  // empty state with a "Connect repository" CTA.
+  const myRepos = await fetchMyRepositories([]);
+  const maintainerRepoKeys = new Set(myRepos.map((r) => `${r.org}/${r.repo}`));
+  const bounties =
+    myRepos.length > 0
+      ? allBounties.filter((b) => maintainerRepoKeys.has(`${b.org}/${b.repo}`))
+      : [];
 
   const needsReview = bounties.filter((b) => b.status === "in_review");
   const open = bounties.filter((b) => b.status === "open" || b.status === "funded");
@@ -99,7 +109,23 @@ export default async function MaintainerDashboardPage() {
         />
       </div>
 
-      <PipelineBoard bounties={bounties} />
+      {myRepos.length === 0 ? (
+        <EmptyState
+          icon={GitBranch}
+          title="No repositories connected"
+          description="Connect a GitHub repository to start tracking your bounty pipeline."
+          action={
+            <Link
+              href="/settings"
+              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+            >
+              Connect repository
+            </Link>
+          }
+        />
+      ) : (
+        <PipelineBoard bounties={bounties} />
+      )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div>
