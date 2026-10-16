@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { fetchMilestones, fetchMaintenancePools } from "@/lib/api";
 import { mockMilestones, mockMaintenancePools } from "@/lib/mock-data";
-import { formatCurrency, formatPercent } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { MilestoneFundButton, PoolDepositButton } from "./MilestoneActions";
+import { MilestoneFundingProgress } from "./MilestoneFundingProgress";
+import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Target, Droplets } from "lucide-react";
+import { t } from "@/lib/messages";
 
 const milestonesDescription =
   "Fund open source release milestones and recurring maintenance pools through MergeFi.";
@@ -32,6 +38,7 @@ export default async function MilestonesPage() {
   ]);
   const milestones = milestonesRes.data;
   const pools = poolsRes.data;
+  const source = milestonesRes.source === "mock" || poolsRes.source === "mock" ? "mock" : "live";
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
@@ -42,21 +49,34 @@ export default async function MilestonesPage() {
         Milestone funding
       </h1>
       <p className="mt-2 max-w-2xl text-slate-500 dark:text-slate-400">
-        Sponsors can fund an entire release instead of a single issue. Budget
-        is distributed automatically across the milestone&apos;s issues as
-        each one resolves.
+        Sponsors can fund an entire release instead of a single issue. Budget is
+        distributed automatically across the milestone&apos;s issues as each one
+        resolves.
       </p>
+
+      {/* Neither section consumed `source` before, so a mock fallback here was
+          indistinguishable from live data. */}
+      {source === "mock" && <DataSourceNotice className="mt-6" />}
 
       <h2 className="mt-8 text-xl font-semibold text-slate-900 dark:text-white">
         Active milestones
       </h2>
 
+      {/* `md:col-span-2` so the empty state spans the grid instead of
+          occupying one narrow cell. */}
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {milestones.length === 0 ? (
           <EmptyState
             icon={Target}
-            title="No milestones yet"
-            description="Milestones will appear here once sponsors create them for open source releases."
+            tone="neutral"
+            className="md:col-span-2"
+            title={t("empty.milestones.none.title")}
+            description={t("empty.milestones.none.description")}
+            action={
+              <Link href="/connect">
+                <Button size="sm">{t("empty.milestones.none.cta")}</Button>
+              </Link>
+            }
           />
         ) : milestones.map((m) => {
           const isUnfunded = m.budget <= 0;
@@ -94,6 +114,53 @@ export default async function MilestonesPage() {
             </Card>
           );
         })}
+        ) : (
+          milestones.map((m) => {
+            // Fundable remainder for the amount input's default and cap. A
+            // milestone with no budget yet (budget <= 0) is left uncapped
+            // rather than reported as fully funded — "remaining 0" would
+            // disable the button on exactly the milestones that most need
+            // their first contribution.
+            const remainingBudget =
+              m.budget > 0 ? Math.max(m.budget - m.distributed, 0) : undefined;
+            return (
+              <Card key={m.id}>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {m.repo}
+                  </p>
+                  <Badge className={m.status === "open" ? "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30" : undefined}>
+                    {m.status}
+                  </Badge>
+                </div>
+                <h3 className="mt-1 font-medium text-slate-900 dark:text-white">
+                  {m.name}
+                </h3>
+                {m.deadline && (
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                    Deadline: {m.deadline}
+                  </p>
+                )}
+                <MilestoneFundingProgress
+                  budget={m.budget}
+                  distributed={m.distributed}
+                  asset={m.asset}
+                />
+                <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                  {m.completedCount} of {m.issueCount} issues complete
+                </p>
+                {m.status === "open" && (
+                  <MilestoneFundButton
+                    milestoneId={m.id}
+                    milestoneName={m.name}
+                    remainingBudget={remainingBudget}
+                    asset={m.asset}
+                  />
+                )}
+              </Card>
+            );
+          })
+        )}
       </div>
 
       <h2 className="mt-16 text-2xl font-semibold text-slate-900 dark:text-white">
@@ -107,21 +174,51 @@ export default async function MilestonesPage() {
         {pools.length === 0 ? (
           <EmptyState
             icon={Droplets}
-            title="No maintenance pools yet"
-            description="Maintenance pools will appear here once sponsors set them up for ongoing upkeep."
+            tone="neutral"
+            className="md:col-span-2"
+            title={t("empty.pools.none.title")}
+            description={t("empty.pools.none.description")}
+            action={
+              <Link href="/connect">
+                <Button size="sm">{t("empty.pools.none.cta")}</Button>
+              </Link>
+            }
           />
-        ) : pools.map((pool) => (
-          <Card key={pool.id}>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{pool.repo}</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
-              {formatCurrency(pool.balance, pool.asset)} balance
-            </p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {formatCurrency(pool.monthlyDeposit, pool.asset)} deposited monthly
-            </p>
-            <PoolDepositButton poolId={pool.id} poolRepo={pool.repo} asset={pool.asset} />
-          </Card>
-        ))}
+        ) : (
+          pools.map((pool) => (
+            <Card key={pool.id}>
+              <div className="flex items-start justify-between">
+                <div>
+                  {pool.name && (
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">
+                      {pool.name}
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {pool.repo}
+                  </p>
+                </div>
+                <Badge className={pool.status === "active" ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30" : undefined}>
+                  {pool.status}
+                </Badge>
+              </div>
+              <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                {formatCurrency(pool.balance, pool.asset)} balance
+              </p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {formatCurrency(pool.monthlyDeposit, pool.asset)} deposited
+                monthly
+              </p>
+              {pool.status === "active" && (
+                <PoolDepositButton
+                  poolId={pool.id}
+                  poolRepo={pool.repo}
+                  asset={pool.asset}
+                />
+              )}
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

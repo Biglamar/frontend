@@ -9,6 +9,7 @@ interface BountyStatusProps {
   fallbackBounty?: Bounty;
   onStatusChange?: (status: BountyStatus) => void;
   className?: string;
+  interval?: number;
 }
 
 const statusColors: Record<BountyStatus, string> = {
@@ -17,9 +18,11 @@ const statusColors: Record<BountyStatus, string> = {
   claimed: 'text-blue-600 bg-blue-50 border-blue-200',
   in_review: 'text-yellow-600 bg-yellow-50 border-yellow-200',
   merged: 'text-purple-600 bg-purple-50 border-purple-200',
+  release_failed: 'text-orange-700 bg-orange-50 border-orange-200',
   paid: 'text-purple-600 bg-purple-50 border-purple-200',
   refunded: 'text-red-600 bg-red-50 border-red-200',
   expired: 'text-red-600 bg-red-50 border-red-200',
+  unknown: 'text-gray-600 bg-gray-50 border-gray-200',
 };
 
 const statusLabels: Record<BountyStatus, string> = {
@@ -28,16 +31,19 @@ const statusLabels: Record<BountyStatus, string> = {
   claimed: 'Claimed',
   in_review: 'In Review',
   merged: 'Merged',
+  release_failed: 'Payout Failed',
   paid: 'Paid',
   refunded: 'Refunded',
   expired: 'Expired',
+  unknown: 'Unknown',
 };
 
 export function BountyStatus({ 
   bountyId, 
   fallbackBounty, 
   onStatusChange, 
-  className = '' 
+  className = '', 
+  interval = 5000, 
 }: BountyStatusProps) {
   const {
     bounty,
@@ -51,7 +57,7 @@ export function BountyStatus({
   } = useBountyStatus({
     bountyId,
     fallbackBounty,
-    interval: 5000,
+    interval,
     onStatusChange,
   });
 
