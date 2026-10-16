@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { API_BASE_URL } from "./config";
 import { getToken } from "./auth";
 import {
@@ -183,39 +184,45 @@ export function apiPost<T>(path: string, body?: unknown, idempotencyKey?: string
  * `applyBountyQuery`/`filterBounties` themselves (see src/lib/bounty-query.ts)
  * to get correct behavior against both live and mock-fallback data.
  */
-export async function fetchBounties(
-  fallback: Bounty[],
-  query?: BountyQuery,
-): Promise<FetchResult<Bounty[]>> {
-  const qs = query ? buildBountyQueryString(query) : "";
-  try {
-    const raw = await request<RawBounty[]>(`/bounties${qs}`);
-    return { data: raw.map(adaptBounty), source: "live" };
-  } catch {
-    return { data: fallback, source: "mock" };
-  }
-}
+export const fetchBounties = cache(
+  async (
+    fallback: Bounty[],
+    query?: BountyQuery,
+  ): Promise<FetchResult<Bounty[]>> => {
+    const qs = query ? buildBountyQueryString(query) : "";
+    try {
+      const raw = await request<RawBounty[]>(`/bounties${qs}`);
+      return { data: raw.map(adaptBounty), source: "live" };
+    } catch {
+      return { data: fallback, source: "mock" };
+    }
+  },
+);
 
-export async function fetchBounty(
-  id: string,
-  fallback: Bounty | undefined,
-): Promise<FetchResult<Bounty | undefined>> {
-  try {
-    const raw = await request<RawBounty>(`/bounties/${id}`);
-    return { data: adaptBounty(raw), source: "live" };
-  } catch {
-    return { data: fallback, source: "mock" };
-  }
-}
+export const fetchBounty = cache(
+  async (
+    id: string,
+    fallback: Bounty | undefined,
+  ): Promise<FetchResult<Bounty | undefined>> => {
+    try {
+      const raw = await request<RawBounty>(`/bounties/${id}`);
+      return { data: adaptBounty(raw), source: "live" };
+    } catch {
+      return { data: fallback, source: "mock" };
+    }
+  },
+);
 
-export async function fetchMilestones(fallback: Milestone[]): Promise<FetchResult<Milestone[]>> {
-  try {
-    const raw = await request<RawMilestone[]>("/milestones");
-    return { data: raw.map(adaptMilestone), source: "live" };
-  } catch {
-    return { data: fallback, source: "mock" };
-  }
-}
+export const fetchMilestones = cache(
+  async (fallback: Milestone[]): Promise<FetchResult<Milestone[]>> => {
+    try {
+      const raw = await request<RawMilestone[]>("/milestones");
+      return { data: raw.map(adaptMilestone), source: "live" };
+    } catch {
+      return { data: fallback, source: "mock" };
+    }
+  },
+);
 
 export async function fetchMaintenancePools(
   fallback: MaintenancePool[],
@@ -254,10 +261,11 @@ export async function fetchMyRepositories(
   }
 }
 
-export async function fetchReputationByUsername(
-  username: string,
-  fallback: ReputationProfile | null,
-): Promise<FetchResult<ReputationProfile | null>> {
+export const fetchReputationByUsername = cache(
+  async (
+    username: string,
+    fallback: ReputationProfile | null,
+  ): Promise<FetchResult<ReputationProfile | null>> => {
   try {
     // Prefer the public read path (#597). `GET /users` is JWT-gated and
     // `GET /reputation/:id` is owner-only, so the old pair always 401/403'd
@@ -291,10 +299,11 @@ export async function fetchReputationByUsername(
       }
     }
     return { data: adaptReputation(user, snapshot), source: "live" };
-  } catch {
-    return { data: fallback, source: "mock" };
-  }
-}
+    } catch {
+      return { data: fallback, source: "mock" };
+    }
+  },
+);
 
 /**
  * Handles eligible to appear in the sitemap — i.e. profiles whose owner has
@@ -307,8 +316,8 @@ export async function fetchReputationByUsername(
  * excluded, so the endpoint omitting the field (as it does today) means
  * nothing is indexed rather than everything.
  */
-export async function fetchIndexableReputationHandles(
-  fallback: string[],
+export const fetchIndexableReputationHandles = cache(
+  async (fallback: string[]): Promise<FetchResult<string[]>> => {
 ): Promise<FetchResult<string[]>> {
   try {
     const users = await request<(RawUserProfile & { id: string })[]>("/users");
@@ -325,8 +334,9 @@ export async function fetchIndexableReputationHandles(
     // development exercises the same code path production will take once the
     // backend ships the flag.
     return { data: fallback, source: "mock" };
-  }
-}
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Platform analytics (#633)
