@@ -22,6 +22,7 @@ import {
   type RawReputationSnapshot,
   type RawUserProfile,
 } from "./adapters";
+import type { Bounty } from "@/types";
 
 function rawBounty(overrides: Partial<RawBounty> = {}): RawBounty {
   return {
@@ -104,6 +105,22 @@ describe("adaptBounty — claimedById mapping (#203)", () => {
   });
 });
 
+describe("adaptBounty — sponsorId mapping", () => {
+  it("passes the sponsor's stable id straight through", () => {
+    const raw = rawBounty({ sponsorId: "sponsor-1" });
+    expect(adaptBounty(raw).sponsorId).toBe("sponsor-1");
+  });
+
+  it("normalizes a null sponsorId to undefined", () => {
+    // Nullable column: "no sponsor on file" is reported as `null`.
+    expect(adaptBounty(rawBounty({ sponsorId: null })).sponsorId).toBeUndefined();
+  });
+
+  it("leaves sponsorId undefined when the key is absent entirely", () => {
+    expect(adaptBounty(rawBounty({ sponsorId: undefined })).sponsorId).toBeUndefined();
+  });
+});
+
 describe("adaptBounty — field coverage audit (#86)", () => {
   // Every key the Bounty interface declares (src/types/index.ts). Kept as
   // an explicit list, checked against adaptBounty's actual output below,
@@ -124,7 +141,9 @@ describe("adaptBounty — field coverage audit (#86)", () => {
     "labels",
     "claimedBy",
     "claimedById",
+    "sponsorId",
     "teamSplits",
+    "teamSplitsValid",
     "milestoneId",
     "escrowId",
   ] as const;
@@ -132,6 +151,7 @@ describe("adaptBounty — field coverage audit (#86)", () => {
   it("sets every Bounty field to a defined value given a fully-populated raw bounty", () => {
     const raw = rawBounty({
       escrowId: "escrow-1",
+      sponsorId: "sponsor-1",
       claimedBy: { id: "user-1", username: "alice" },
       team: { splits: [{ role: "Lead", percentage: "100", user: { username: "alice" } }] },
       issue: {
@@ -152,6 +172,52 @@ describe("adaptBounty — field coverage audit (#86)", () => {
   });
 });
 
+/**
+ * teamSplitsValid is declared on the Bounty type itself and read by
+ * IssueDetailPage. It used to be intersected onto adaptBounty's return type
+ * only, so consumers typed as plain `Bounty` (fetchBounties returns Bounty[])
+ * had no access to it at the type level (#419).
+ */
+describe("adaptBounty — teamSplitsValid", () => {
+  it("surfaces the flag through the plain Bounty type, not an adapter-local one", () => {
+    const bounty: Bounty = adaptBounty(
+      rawBounty({
+        team: { splits: [{ role: "Lead", percentage: "60" }, { role: "Dev", percentage: "40" }] },
+      }),
+    );
+
+    expect(bounty.teamSplitsValid).toEqual({ valid: true, sum: 100 });
+  });
+
+  it("reports invalid splits with validateTeamSplits' message", () => {
+    const bounty: Bounty = adaptBounty(
+      rawBounty({
+        team: { splits: [{ role: "Lead", percentage: "50" }, { role: "Dev", percentage: "35" }] },
+      }),
+    );
+
+    expect(bounty.teamSplitsValid).toEqual({
+      valid: false,
+      sum: 85,
+      message: "Team splits sum to 85.00% (expected 100%)",
+    });
+  });
+
+  it("leaves the flag undefined for a bounty with no team", () => {
+    const bounty: Bounty = adaptBounty(rawBounty({ team: null }));
+
+    expect(bounty.teamSplits).toBeUndefined();
+    expect(bounty.teamSplitsValid).toBeUndefined();
+  });
+
+  it("treats an empty splits array as valid with a zero sum, not as invalid", () => {
+    const bounty: Bounty = adaptBounty(rawBounty({ team: { splits: [] } }));
+
+    expect(bounty.teamSplits).toEqual([]);
+    expect(bounty.teamSplitsValid).toEqual({ valid: true, sum: 0 });
+  });
+});
+
 // ─── adaptMilestone (#197) ─────────────────────────────────────────────────
 
 function rawMilestone(overrides: Partial<RawMilestone> = {}): RawMilestone {
@@ -168,15 +234,37 @@ function rawMilestone(overrides: Partial<RawMilestone> = {}): RawMilestone {
 }
 
 describe("adaptMilestone", () => {
-  it("derives issueCount and completedCount from raw.issues", () => {
+  it("derives issueCount from raw.issues and completedCount from distributed/budget (#615)", () => {
     const milestone = adaptMilestone(rawMilestone());
     expect(milestone.issueCount).toBe(3);
-    expect(milestone.completedCount).toBe(2);
+    // distributed=2000, budget=5000 → 40% of 3 issues = 1
+    expect(milestone.completedCount).toBe(1);
   });
 
   it("defaults issueCount/completedCount to 0 when raw.issues is absent", () => {
     const milestone = adaptMilestone(rawMilestone({ issues: undefined }));
     expect(milestone.issueCount).toBe(0);
+    expect(milestone.completedCount).toBe(0);
+  });
+
+  it("returns 0 completedCount when budget is zero (#615)", () => {
+    const milestone = adaptMilestone(
+      rawMilestone({ budget: "0", distributed: "500", issues: [{ state: "closed" }, { state: "closed" }] }),
+    );
+    expect(milestone.completedCount).toBe(0);
+  });
+
+  it("bases completedCount on payouts, not GitHub-closed issue count (#615)", () => {
+    // All issues closed on GitHub, but only 10% of budget distributed
+    const milestone = adaptMilestone(
+      rawMilestone({
+        budget: "1000",
+        distributed: "100",
+        issues: [{ state: "closed" }, { state: "closed" }, { state: "closed" }, { state: "closed" }],
+      }),
+    );
+    expect(milestone.issueCount).toBe(4);
+    // 10% of 4 issues = 0 (not 4 from GitHub-closed count)
     expect(milestone.completedCount).toBe(0);
   });
 
@@ -263,6 +351,21 @@ describe("adaptReputation", () => {
     const profile = adaptReputation(rawUserProfile(), rawReputationSnapshot());
     expect(profile.completionRate).toBeCloseTo(0.94);
     expect(profile.onTimeDeliveryRate).toBeCloseTo(0.88);
+  });
+
+  // The search-engine opt-in mapped from the backend's `isProfilePublic`
+  // (see src/lib/seo-policy.ts). Only an explicit `true` may enable indexing.
+  it.each([
+    [true, true],
+    [false, false],
+    [null, false],
+    [undefined, false],
+  ])("maps isProfilePublic %p to indexable %p", (isProfilePublic, expected) => {
+    const profile = adaptReputation(
+      rawUserProfile({ isProfilePublic }),
+      rawReputationSnapshot(),
+    );
+    expect(profile.indexable).toBe(expected);
   });
 
   it("returns zeroed fields when there is no snapshot", () => {

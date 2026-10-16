@@ -25,7 +25,7 @@ import {
   recentActivity,
   faqs,
 } from "@/lib/mock-data";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatInteger } from "@/lib/utils";
 import { STELLAR_NETWORK } from "@/lib/config";
 
 const integrations = [
@@ -122,7 +122,7 @@ export default function HomePage() {
             <span>
               Joined by{" "}
               <strong className="text-slate-900 dark:text-white">
-                {platformStats.activeContributors.toLocaleString()} contributors
+                {formatInteger(platformStats.activeContributors)} contributors
               </strong>{" "}
               already earning
             </span>
@@ -135,25 +135,25 @@ export default function HomePage() {
           <p className="text-center text-xs font-medium uppercase tracking-widest text-slate-400 dark:text-slate-500">
             Trusted by open-source teams on Stellar
           </p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
+          <ul role="list" className="mt-4 flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
             {trustedOrgs.map((org) => (
-              <span key={org} className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+              <li key={org} className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
                 <Avatar seed={org} size={20} className="rounded-md" />
                 {org}
-              </span>
+              </li>
             ))}
-          </div>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 border-t border-slate-100 pt-6 dark:border-slate-800">
+          </ul>
+          <ul role="list" className="mt-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 border-t border-slate-100 pt-6 dark:border-slate-800">
             {integrations.map(({ icon: Icon, label }) => (
-              <span
+              <li
                 key={label}
                 className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300"
               >
                 <Icon className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
                 {label}
-              </span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
@@ -292,7 +292,7 @@ export default function HomePage() {
                 <summary className="cursor-pointer list-none font-medium text-slate-900 marker:content-none dark:text-white">
                   <span className="flex items-center justify-between">
                     {faq.question}
-                    <span aria-hidden="true" className="ml-4 text-slate-400 transition-transform group-open:rotate-45">+</span>
+                    <span aria-hidden="true" className="ms-4 text-slate-400 transition-transform group-open:rotate-45">+</span>
                   </span>
                 </summary>
                 <p className="mt-3 text-sm leading-relaxed text-slate-500 dark:text-slate-400">

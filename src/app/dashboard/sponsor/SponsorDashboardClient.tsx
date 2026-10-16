@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { Wallet, Receipt, Lock, FolderGit2, Inbox } from "lucide-react";
+import { Wallet, Receipt, Lock, FolderGit2, Inbox, CheckCircle2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { ActivityList } from "@/components/dashboard/ActivityList";
 import { StatCard, type StatCardStatus } from "@/components/ui/StatCard";
 import { BarChart } from "@/components/ui/BarChart";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SampleDataChip } from "@/components/ui/DataSourceNotice";
+import { Button } from "@/components/ui/Button";
 import { BountyCard } from "@/components/bounty/BountyCard";
 import { Card } from "@/components/ui/Card";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, subtractMoney } from "@/lib/utils";
+import { t } from "@/lib/messages";
 import { apiRequest } from "@/lib/api";
 import { adaptBounty, type RawBounty, type RawMilestone } from "@/lib/adapters";
 import {
@@ -54,7 +57,15 @@ export default function SponsorDashboardClient() {
   // hiding the whole page, and errors rather than flashing zeroes.
   const [fetchStatus, setFetchStatus] = useState<StatCardStatus>("loading");
 
+  // Drops responses from a superseded run of the effect below. Even with
+  // `user?.id` as the dependency, `loading` flipping (cross-tab login, token
+  // re-resolve) re-runs this fetch while the previous one may still be in
+  // flight, and an unmount mid-request would otherwise write state into a
+  // component that no longer exists. Last-started wins, not last-to-resolve.
+  const fetchGeneration = useRef(0);
+
   useEffect(() => {
+    const generation = ++fetchGeneration.current;
     if (loading) return;
 
     if (!user) {
@@ -64,7 +75,11 @@ export default function SponsorDashboardClient() {
         activeBounties: mockBounties.filter((b) =>
           ["open", "funded", "claimed", "in_review"].includes(b.status),
         ),
-        totalSpent: mockSponsorSummary.totalFunded - mockSponsorSummary.budgetRemaining,
+        // Integer minor-unit arithmetic, not raw float subtraction (#353).
+        totalSpent: subtractMoney(
+          mockSponsorSummary.totalFunded,
+          mockSponsorSummary.budgetRemaining,
+        ),
         budgetLocked: mockSponsorSummary.budgetRemaining,
         repoCount: mockSponsorSummary.repos.length,
       });
@@ -90,6 +105,7 @@ export default function SponsorDashboardClient() {
       }>;
     }>(`/sponsors/${user.id}/dashboard`)
       .then((raw) => {
+        if (generation !== fetchGeneration.current) return;
         const activeBounties = raw.activeBounties.map(adaptBounty);
         const repoCount = new Set(activeBounties.map((b) => `${b.org}/${b.repo}`)).size;
         setData({
@@ -103,6 +119,7 @@ export default function SponsorDashboardClient() {
         setIsLive(true);
       })
       .catch(() => {
+        if (generation !== fetchGeneration.current) return;
         // On error: keep data null so cards can show their error state.
         // Do NOT set values to 0 — that would be indistinguishable from a
         // real zero balance, which is a trust-eroding false signal for a sponsor.
@@ -123,6 +140,13 @@ export default function SponsorDashboardClient() {
   const activeBountyCount = data?.activeBounties.length;
   const budgetLocked = data?.budgetLocked;
   const repoCount = data?.repoCount;
+
+  /* Any money or repo history means this sponsor has funded before, so an
+     empty active list means "all settled" rather than "never started". */
+  const sponsorHasHistory =
+    (data?.totalSpent ?? 0) > 0 ||
+    (data?.budgetLocked ?? 0) > 0 ||
+    (data?.repoCount ?? 0) > 0;
 
   return (
     <DashboardShell
@@ -196,24 +220,20 @@ export default function SponsorDashboardClient() {
         <Card>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Spend, last 8 weeks</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-6">
-            <BarChart data={spendChartData} formatValue={(v) => formatCurrency(v)} />
+            <BarChart
+              data={spendChartData}
+              formatValue={(v) => formatCurrency(v)}
+              title="Spend, last 8 weeks"
+            />
           </div>
         </Card>
         <Card>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Spend by repository</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-5 space-y-3">
             {sponsorSpendByRepo.map((r) => (
@@ -242,12 +262,38 @@ export default function SponsorDashboardClient() {
           <BountyCard key={bounty.id} bounty={bounty} />
         ))}
       </div>
-      {(data?.activeBounties?.length === 0) && (
-        <EmptyState
-          icon={Inbox}
-          title="No active bounties"
-          description="Fund an issue to see it appear here once it's live."
-        />
+      {data?.activeBounties?.length === 0 && (
+        /* Two genuinely different situations collapse into the same
+           "0 active bounties" count, and the previous single copy treated
+           both as "fund something", which is the wrong advice for a sponsor
+           whose entire portfolio has already been paid out:
+             - never funded anything   → needs a "fund your first" CTA
+             - everything has settled   → this is the success state, and
+                                         suggesting they fund more is noise */
+        sponsorHasHistory ? (
+          <EmptyState
+            icon={CheckCircle2}
+            tone="success"
+            className="md:col-span-2"
+            headingLevel="h3"
+            title={t("empty.sponsor.settled.title")}
+            description={t("empty.sponsor.settled.description")}
+          />
+        ) : (
+          <EmptyState
+            icon={Inbox}
+            tone="neutral"
+            className="md:col-span-2"
+            headingLevel="h3"
+            title={t("empty.sponsor.none.title")}
+            description={t("empty.sponsor.none.description")}
+            action={
+              <Link href="/issues">
+                <Button size="sm">{t("empty.sponsor.none.cta")}</Button>
+              </Link>
+            }
+          />
+        )
       )}
 
       <div className="mt-10 flex items-center gap-2">
@@ -257,6 +303,7 @@ export default function SponsorDashboardClient() {
             Sample data
           </span>
         )}
+        {isLive && <SampleDataChip />}
       </div>
       <div className="mt-4">
         {isLive && data?.recentPayments && data.recentPayments.length > 0 ? (

@@ -14,7 +14,8 @@ import { loadValidatedEnv } from "./src/lib/env";
  * guaranteed to resolve tsconfig path aliases the same way application
  * code does.
  */
-loadValidatedEnv();
+const env = loadValidatedEnv();
+const apiOrigin = new URL(env.apiBaseUrl).origin;
 
 /**
  * Production security headers (#50), applied to every route below.
@@ -43,16 +44,12 @@ loadValidatedEnv();
  *   too. The browser ignores this header entirely over plain HTTP, so
  *   it's harmless to always send.
  *
- * Content-Security-Policy (#4):
- * - 'unsafe-inline' is required for: (1) the theme-init inline script in
- *   <head>, (2) Turbopack dev-mode HMR inline scripts, and (3) React 19's
- *   hydration inline scripts. A nonce or hash-based approach would be more
- *   secure but requires build-time instrumentation that composes poorly
- *   with Turbopack's current dev mode. 'unsafe-inline' for scripts is
- *   still a meaningful upgrade over no CSP at all — it blocks external
- *   script injection from third-party origins and inline event handlers
- *   (onclick, onerror) injected via XSS.
- * - connect-src includes the API backend so authenticated fetches work.
+ * Content-Security-Policy (#4, #610):
+ * - Now set in middleware.ts with a per-request nonce (see middleware.ts).
+ *   The nonce replaces `'unsafe-inline'` for scripts, so injected inline
+ *   <script> tags and inline event handlers no longer execute.
+ * - connect-src is set dynamically in middleware (apiOrigin is computed
+ *   at build time from env, so it's baked into the middleware output).
  * - img-src allows GitHub avatars and DiceBear identicons.
  * - Freighter wallet extension content scripts are not blocked by CSP
  *   (browser extensions inject with extension privileges).
@@ -63,14 +60,18 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Strict-Transport-Security", value: "max-age=86400" },
   {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  },
+  {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com data:",
+      "img-src 'self' https://avatars.githubusercontent.com https://api.dicebear.com https://github.com https://user-images.githubusercontent.com https://private-user-images.githubusercontent.com https://raw.githubusercontent.com https://camo.githubusercontent.com data:",
       "font-src 'self'",
-      "connect-src 'self'",
+      `connect-src 'self' ${apiOrigin}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -94,6 +95,21 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      // The sitemap moved from a single /sitemap.xml to chunked
+      // /sitemaps/<id>.xml files (src/app/sitemaps/[id]/route.ts) so it can
+      // respect the 50,000-URL-per-file limit search engines enforce.
+      // `permanent: true` emits a 308, so any crawler or integration still
+      // requesting the old URL follows to the new location instead of a 404,
+      // and the redirect itself is cached rather than re-derived per request.
+      {
+        source: "/sitemap.xml",
+        destination: "/sitemaps/0.xml",
+        permanent: true,
       },
     ];
   },
