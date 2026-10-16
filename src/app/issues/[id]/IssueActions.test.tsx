@@ -106,7 +106,6 @@ describe("IssueActions — action buttons per bounty.status", () => {
     ["merged", "Payout pending"],
     ["paid", "Payout complete"],
     ["refunded", "No action available"],
-    ["expired", "No action available"],
   ] as const)(
     "%s → a single disabled '%s' button and no money-moving action",
     (status, label) => {
@@ -120,6 +119,17 @@ describe("IssueActions — action buttons per bounty.status", () => {
       ).not.toBeInTheDocument();
     },
   );
+
+  it("expired (non-sponsor) shows a disabled 'Deadline passed' button", () => {
+    render(<IssueActions bounty={makeBounty("expired")} />);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveTextContent("Deadline passed");
+    expect(buttons[0]).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /fund|claim|refund/i }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("IssueActions — fund (wallet-gated)", () => {
