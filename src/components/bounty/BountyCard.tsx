@@ -15,10 +15,26 @@ const accentByDifficulty: Record<Bounty["difficulty"], string> = {
 
 export function BountyCard({ bounty }: { bounty: Bounty }) {
   const days = bounty.deadline ? daysUntil(bounty.deadline) : null;
+  // Build a descriptive accessible label that includes status, deadline,
+  // and claimant so screen readers announce the full card context (#654).
+  const accessibleLabel = [
+    bounty.title,
+    `from ${bounty.org}/${bounty.repo}`,
+    `issue ${bounty.issueNumber}`,
+    `reward ${formatCurrency(bounty.reward, bounty.asset)}`,
+    `status: ${bounty.status.replace("_", " ")}`,
+    `difficulty: ${bounty.difficulty}`,
+    days !== null ? formatDaysUntil(days) : null,
+    bounty.claimedBy ? `claimed by ${bounty.claimedBy}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <Link
       href={`/issues/${bounty.id}`}
       prefetch={false}
+      aria-label={accessibleLabel}
       className={`relative block overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all before:absolute before:inset-y-0 before:left-0 before:w-1 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-800 dark:bg-slate-900 ${accentByDifficulty[bounty.difficulty]}`}
     >
       <div className="flex items-start justify-between gap-4 pl-2">

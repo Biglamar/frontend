@@ -39,6 +39,36 @@ export function coercePercentage(value: string | null | undefined, fallback = 0)
  */
 const SANITY_CEILING = 1_000_000_000; // 1 billion
 
+// ── Cached Intl.NumberFormat instances (#656) ────────────────────────────────
+// `Intl.NumberFormat` construction calls `resolveLocale()` which is expensive
+// and can vary between server and client (hydration mismatch). Cache instances
+// so they're constructed once and reused deterministically across renders.
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+/**
+ * Cached Intl.NumberFormat factory. Returns a memoized formatter for the
+ * given locale + options, avoiding repeated `resolveLocale()` calls (#656).
+ */
+export function getNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = `${locale}:${JSON.stringify(options)}`;
+  let fmt = numberFormats.get(key);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(locale, options);
+    numberFormats.set(key, fmt);
+  }
+  return fmt;
+}
+
+// ── Locale-independent formatting (#656) ──────────────────────────────────────
+// Use explicit "en-US" locale so server and client always produce identical
+// output regardless of the viewer's system locale.
+
+const currencyFormat2 = getNumberFormat("en-US", { maximumFractionDigits: 2 });
+const currencyFormat7 = getNumberFormat("en-US", { maximumFractionDigits: 7 });
+const countFormat = getNumberFormat("en-US", { maximumFractionDigits: 0 });
+const parseNormalizeFormat2 = getNumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const parseNormalizeFormat7 = getNumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 7 });
+
 /**
  * Format a numeric amount as a currency string with the specified asset label.
  *
@@ -63,8 +93,8 @@ const SANITY_CEILING = 1_000_000_000; // 1 billion
  */
 export function formatCurrency(amount: number, asset: "USDC" | "XLM" = "USDC") {
   if (!Number.isFinite(amount)) return `0 ${asset}`;
-  const maxDecimals = asset === "XLM" ? 7 : 2;
-  const formatted = amount.toLocaleString("en-US", { maximumFractionDigits: maxDecimals });
+  const fmt = asset === "XLM" ? currencyFormat7 : currencyFormat2;
+  const formatted = fmt.format(amount);
   if (Math.abs(amount) > SANITY_CEILING) return `${formatted} ${asset} ⚠`;
   return `${formatted} ${asset}`;
 }
@@ -118,12 +148,10 @@ export function parseMoneyInput(
   }
 
   // Normalize: convert to a canonical decimal string with the right precision.
-  // Use toLocaleString with fixed fraction digits to get a clean representation,
-  // then strip thousands separators.
-  const normalized = num.toLocaleString("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: maxDecimals,
-  }).replace(/,/g, "");
+  // Use a cached Intl.NumberFormat with fixed fraction digits to get a clean
+  // representation, then strip thousands separators.
+  const fmt = asset === "XLM" ? parseNormalizeFormat7 : parseNormalizeFormat2;
+  const normalized = fmt.format(num).replace(/,/g, "");
 
   return { valid: true, normalized };
 }

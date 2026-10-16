@@ -22,7 +22,7 @@
  * always available via the title attribute (keyboard-navigable, hover tooltip).
  */
 
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, getNumberFormat } from "@/lib/utils";
 import { ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Sparkline } from "./Sparkline";
@@ -87,7 +87,8 @@ function formatValue(
       return { display: pct, exact: pct };
     }
     case "count": {
-      const s = value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+      // Use cached formatter to avoid hydration mismatch (#656).
+      const s = getNumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
       return { display: s, exact: s };
     }
     case "raw":
