@@ -9,7 +9,8 @@ const STATIC_ROUTES = ["", "/issues", "/milestones", "/connect"];
 
 export type SitemapEntry = {
   url: string;
-  lastModified: Date;
+  /** Omitted for static routes — crawlers can't distinguish real changes from rebuild noise (#635). */
+  lastModified?: Date;
   changeFrequency?: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never";
   priority?: number;
 };
@@ -28,8 +29,6 @@ export async function buildSitemapEntries(): Promise<SitemapEntry[]> {
     fetchIndexableReputationHandles(Object.keys(mockReputationProfiles)),
   ]);
 
-  const now = new Date();
-
   // #634 — Exclude mock bounty URLs from the sitemap in production. Mock
   // data is development-only fallback; listing it in a production sitemap
   // generates URLs that 404 or render sample data once the backend is back.
@@ -39,24 +38,35 @@ export async function buildSitemapEntries(): Promise<SitemapEntry[]> {
     : bountiesRes.data;
 
   const entries: SitemapEntry[] = [
+    // #635 — static routes have no meaningful "last modified" timestamp;
+    // omit lastModified so crawlers don't see a fake change date on every rebuild.
     ...STATIC_ROUTES.map((route) => ({
       url: `${SITE_URL}${route}`,
-      lastModified: now,
       changeFrequency: "daily" as const,
       priority: route === "" ? 1 : 0.8,
     })),
+    // #635 — bounty pages use the bounty's updatedAt timestamp so crawlers
+    // can tell what actually changed between rebuilds.
     ...bounties.map((bounty) => ({
       url: `${SITE_URL}/issues/${encodeURIComponent(bounty.id)}`,
-      lastModified: now,
+      lastModified: new Date(
+        (bounty as { updatedAt?: string }).updatedAt ?? Date.now(),
+      ),
       changeFrequency: "daily" as const,
       priority: 0.7,
     })),
-    ...handlesRes.data.map((handle) => ({
-      url: `${SITE_URL}/reputation/${encodeURIComponent(handle)}`,
-      lastModified: now,
-      changeFrequency: "weekly" as const,
-      priority: 0.5,
-    })),
+    // #635 — reputation pages use the snapshot's computedAt timestamp when available.
+    ...handlesRes.data.map((handle) => {
+      const profile = mockReputationProfiles[handle];
+      const computedAt = (profile as { computedAt?: string } | undefined)
+        ?.computedAt;
+      return {
+        url: `${SITE_URL}/reputation/${encodeURIComponent(handle)}`,
+        ...(computedAt ? { lastModified: new Date(computedAt) } : {}),
+        changeFrequency: "weekly" as const,
+        priority: 0.5,
+      };
+    }),
   ];
 
   return entries;
