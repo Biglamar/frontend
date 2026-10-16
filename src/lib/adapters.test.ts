@@ -234,15 +234,37 @@ function rawMilestone(overrides: Partial<RawMilestone> = {}): RawMilestone {
 }
 
 describe("adaptMilestone", () => {
-  it("derives issueCount and completedCount from raw.issues", () => {
+  it("derives issueCount from raw.issues and completedCount from distributed/budget (#615)", () => {
     const milestone = adaptMilestone(rawMilestone());
     expect(milestone.issueCount).toBe(3);
-    expect(milestone.completedCount).toBe(2);
+    // distributed=2000, budget=5000 → 40% of 3 issues = 1
+    expect(milestone.completedCount).toBe(1);
   });
 
   it("defaults issueCount/completedCount to 0 when raw.issues is absent", () => {
     const milestone = adaptMilestone(rawMilestone({ issues: undefined }));
     expect(milestone.issueCount).toBe(0);
+    expect(milestone.completedCount).toBe(0);
+  });
+
+  it("returns 0 completedCount when budget is zero (#615)", () => {
+    const milestone = adaptMilestone(
+      rawMilestone({ budget: "0", distributed: "500", issues: [{ state: "closed" }, { state: "closed" }] }),
+    );
+    expect(milestone.completedCount).toBe(0);
+  });
+
+  it("bases completedCount on payouts, not GitHub-closed issue count (#615)", () => {
+    // All issues closed on GitHub, but only 10% of budget distributed
+    const milestone = adaptMilestone(
+      rawMilestone({
+        budget: "1000",
+        distributed: "100",
+        issues: [{ state: "closed" }, { state: "closed" }, { state: "closed" }, { state: "closed" }],
+      }),
+    );
+    expect(milestone.issueCount).toBe(4);
+    // 10% of 4 issues = 0 (not 4 from GitHub-closed count)
     expect(milestone.completedCount).toBe(0);
   });
 

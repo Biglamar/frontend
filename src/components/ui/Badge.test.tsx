@@ -19,9 +19,11 @@ const ALL_STATUSES: BountyStatus[] = [
   "claimed",
   "in_review",
   "merged",
+  "release_failed",
   "paid",
   "refunded",
   "expired",
+  "unknown",
 ];
 
 const ALL_DIFFICULTIES: Difficulty[] = ["beginner", "intermediate", "advanced", "expert"];
@@ -40,9 +42,11 @@ const STATUS_LABELS: Record<BountyStatus, string> = {
   claimed: "Claimed",
   in_review: "In Review",
   merged: "Merged",
+  release_failed: "Payout Failed",
   paid: "Paid",
   refunded: "Refunded",
   expired: "Expired",
+  unknown: "Unknown",
 };
 
 describe("StatusBadge", () => {

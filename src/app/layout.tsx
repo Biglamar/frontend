@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/layout/Navbar";
@@ -40,11 +41,14 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headerStore = await headers();
+  const nonce = headerStore.get("x-nonce") ?? undefined;
+
   return (
     /* `lang` and `dir` are written by localeInitScript before first paint
        (see the script tag below), so a right-to-left viewer never sees a
@@ -56,11 +60,12 @@ export default function RootLayout({
       lang="en"
       dir="ltr"
       suppressHydrationWarning
+      nonce={nonce}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <script dangerouslySetInnerHTML={{ __html: localeInitScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: localeInitScript }} />
       </head>
       <body className="flex min-h-full flex-col bg-[#fbfbfd] text-slate-900 dark:bg-[#0a0a0f] dark:text-white">
         <a

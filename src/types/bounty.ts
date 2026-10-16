@@ -6,9 +6,11 @@ export type BountyStatus =
   | 'claimed'
   | 'in_review'
   | 'merged'
+  | 'release_failed'
   | 'paid'
   | 'refunded'
-  | 'expired';
+  | 'expired'
+  | 'unknown';
 
 export interface Bounty {
   id: string;

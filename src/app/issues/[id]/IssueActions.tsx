@@ -10,6 +10,11 @@ import { formatCurrency, generateIdempotencyKey } from "@/lib/utils";
 import { ClaimButton } from "@/components/bounty/ClaimButton";
 import type { Bounty } from "@/types";
 
+/** #592 — generate a UUID for the Idempotency-Key header. */
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export function IssueActions({ bounty }: { bounty: Bounty }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -17,6 +22,10 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Idempotency keys generated once per user intent (#593), not per click.
+  // Reused for retries so a lost response + retry doesn't fund twice.
+  const [fundKey, setFundKey] = useState(() => generateIdempotencyKey());
+  const [refundKey, setRefundKey] = useState(() => generateIdempotencyKey());
 
   /**
    * Whether the signed-in user is this bounty's sponsor, i.e. the account
@@ -36,31 +45,13 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   const isSponsor = !!user && !!bounty.sponsorId && user.id === bounty.sponsorId;
 
   /**
-   * "Fund this bounty" is deliberately gated on `status === "open"` only —
-   * unlike "Refund sponsor", it is not additionally gated on `isSponsor`.
-   * The asymmetry is a design decision, so here is the reasoning, confirmed
-   * against mergefi-backend rather than assumed:
+   * "Fund this bounty" is sponsor-only, same as "Refund sponsor" (#602).
    *
-   * - Server-side the two routes are authorized *identically*:
-   *   `POST /bounties/:id/fund` and `POST /bounties/:id/refund` both require
-   *   the SPONSOR or MAINTAINER role, and both services throw
-   *   `ForbiddenException` unless `bounty.sponsorId === callerUserId`. There
-   *   is no crowdfunding path — a bounty carries a single nullable
-   *   `sponsorId` FK and a single `Escrow` row, so "the funder" is always
-   *   exactly one account, never a set of contributors.
-   * - Refund was the one to gate in the UI because it was being offered to
-   *   every authenticated visitor with no relationship check at all: a
-   *   destructive, already-funded escrow action advertised as a normal
-   *   button. The affordance itself was the bug.
-   * - Fund stays open as the page's primary forward CTA on an open bounty.
-   *   A viewer who isn't the sponsor gets the backend's 403 surfaced as a
-   *   normal error message, having moved no money — a rejected forward
-   *   action, not a hijackable one.
-   *
-   * Both buttons are therefore sponsor-only in effect; only refund is
-   * sponsor-only in appearance. If that becomes confusing rather than
-   * economical, gating Fund on `isSponsor` too is a one-line change — the
-   * field it needs now exists.
+   * mergefi-backend's `POST /bounties/:id/fund` throws 403
+   * "Only the bounty sponsor can fund this bounty" unless
+   * `bounty.sponsorId === callerUserId`. Offering the button to every visitor
+   * invited contributors to connect a wallet and then hit that error.
+   * Non-sponsors now see a neutral "Awaiting sponsor funding" state instead.
    */
   // SCOPED OUT (deliberate, not overlooked): bounty.teamSplitsValid is now
   // surfaced as a visible warning on IssueDetailPage, but it does *not* gate
@@ -79,9 +70,17 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
+      const walletAddress = address ?? (await connect());
+      if (!walletAddress) {
+        setError(getWalletError() ?? "Connect a Stellar wallet to continue.");
       const result = await runWithWallet(async (walletAddress) => {
         await apiPost(`/bounties/${bounty.id}/fund`, {
           funderAddress: walletAddress,
+          idempotencyKey: fundKey,
+        });
+        setNotice("Escrow funded on-chain. This bounty is now open for claims.");
+        // Rotate key after definitive success so next fund attempt is fresh
+        setFundKey(generateIdempotencyKey());
           idempotencyKey: generateIdempotencyKey(),
         });
         setNotice("Escrow funded on-chain. This bounty is now open for claims.");
@@ -98,6 +97,39 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     }
   }
 
+  async function handleFund() {
+    await withWallet(async (walletAddress) => {
+      await apiPost(
+        `/bounties/${bounty.id}/fund`,
+        { funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
+      setNotice("Escrow funded on-chain. This bounty is now open for claims.");
+    });
+  }
+
+  async function handleClaim() {
+    setError(null);
+    setNotice(null);
+    if (!user) {
+      router.push("/connect");
+      return;
+    }
+    setPending(true);
+    try {
+      await apiPost(
+        `/bounties/${bounty.id}/claim`,
+        { contributorId: user.id },
+        generateIdempotencyKey(),
+      );
+      setNotice("You've claimed this issue. Open a pull request to get started.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
+    } finally {
+      setPending(false);
+    }
+  }
   const handleClaimSuccess = () => {
     setNotice("You've claimed this issue. Open a pull request to get started.");
     router.refresh();
@@ -124,10 +156,14 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
+      await apiPost(`/bounties/${bounty.id}/refund`, undefined, generateIdempotencyKey());
       await apiPost(`/bounties/${bounty.id}/refund`, {
+        idempotencyKey: refundKey,
         idempotencyKey: generateIdempotencyKey(),
       });
       setNotice("Escrowed funds were refunded to the sponsor.");
+      // Rotate key after definitive success
+      setRefundKey(generateIdempotencyKey());
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
@@ -139,9 +175,14 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   return (
     <div className="mt-10">
       <div className="flex flex-wrap gap-3">
-        {bounty.status === "open" && (
+        {bounty.status === "open" && isSponsor && (
           <Button size="lg" onClick={handleFund} loading={pending || connecting}>
-            {pending || connecting ? "Confirming in wallet..." : "Fund this bounty"}
+            {pending || connecting ? "Submitting..." : "Fund this bounty"}
+          </Button>
+        )}
+        {bounty.status === "open" && !isSponsor && (
+          <Button size="lg" variant="outline" disabled>
+            Awaiting sponsor funding
           </Button>
         )}
         {bounty.status === "funded" && (
@@ -161,7 +202,18 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
             Refund sponsor
           </Button>
         )}
-        {["in_review", "merged", "paid", "refunded", "expired"].includes(
+        {["in_review", "merged", "release_failed", "paid", "refunded", "expired", "unknown"].includes(
+        {/*
+          Expired bounties: the backend's state machine allows EXPIRED →
+          REFUNDED so sponsors can reclaim escrow after the deadline sweep,
+          which does not refund automatically (#603).
+        */}
+        {isSponsor && bounty.status === "expired" && (
+          <Button size="lg" variant="outline" onClick={handleRefund} loading={pending}>
+            Refund sponsor (deadline passed)
+          </Button>
+        )}
+        {["in_review", "merged", "paid", "refunded"].includes(
           bounty.status,
         ) && (
           <Button size="lg" variant="outline" disabled>
@@ -171,7 +223,14 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
                 ? "Awaiting PR merge"
                 : bounty.status === "merged"
                   ? "Payout pending"
-                  : "No action available"}
+                  : bounty.status === "release_failed"
+                    ? "Payout failed — contact support"
+                    : "No action available"}
+          </Button>
+        )}
+        {bounty.status === "expired" && !isSponsor && (
+          <Button size="lg" variant="outline" disabled>
+            Deadline passed
           </Button>
         )}
       </div>

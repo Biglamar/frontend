@@ -11,6 +11,12 @@ import {
   formatCurrency,
 } from "@/lib/utils";
 
+/** #592 — generate a UUID for the Idempotency-Key header. */
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+export function MilestoneFundButton({ milestoneId }: { milestoneId: string }) {
 /**
  * parseMoneyInput is the single source of truth for "is this a usable amount"
  * (non-empty, finite, > 0, within the asset's decimal precision) — reused
@@ -86,6 +92,16 @@ export function MilestoneFundButton({
 
     setPending(true);
     try {
+      const walletAddress = address ?? (await connect());
+      if (!walletAddress) {
+        setError(getWalletError() ?? "Connect a Stellar wallet to fund this milestone.");
+        return;
+      }
+      // #594 — backend FundMilestoneDto only accepts funderAddress; no amount field.
+      await apiPost(
+        `/milestones/${milestoneId}/fund`,
+        { funderAddress: walletAddress },
+        generateIdempotencyKey(),
       const walletResult = await runWithWallet(
         (walletAddress) =>
           apiPost(`/milestones/${milestoneId}/fund`, {
@@ -214,6 +230,16 @@ export function PoolDepositButton({
 
     setPending(true);
     try {
+      const walletAddress = address ?? (await connect());
+      if (!walletAddress) {
+        setError(getWalletError() ?? "Connect a Stellar wallet to deposit.");
+        return;
+      }
+      await apiPost(
+        `/maintenance-pools/${poolId}/deposit`,
+        { amount, funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
       const walletResult = await runWithWallet(
         (walletAddress) =>
           apiPost(`/maintenance-pools/${poolId}/deposit`, {
