@@ -1,15 +1,38 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+/**
+ * #651 — Resolve relative links in GitHub issue bodies to the repository URL.
+ * Relative links like `./docs` or `../CONTRIBUTING.md` resolve against the
+ * MergeFi/frontend repo instead of the site origin.
+ */
+const REPO_BASE_URL = "https://github.com/MergeFi/frontend";
+
+function resolveRepoUrl(href: string | undefined): string | undefined {
+  if (!href) return href;
+  // Skip absolute URLs (http/https/mailto/etc.)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return href;
+  // Skip anchors
+  if (href.startsWith("#")) return href;
+  // Resolve relative to repo root
+  if (href.startsWith("./") || href.startsWith("../") || href.startsWith("/")) {
+    return `${REPO_BASE_URL}/${href.replace(/^\.\//, "")}`;
+  }
+  // Bare relative path
+  return `${REPO_BASE_URL}/${href}`;
+}
+
 // Matches the design tokens already used for description text elsewhere in
 // this app (see the plain <p> this component replaces on IssueDetailPage).
 const markdownComponents: Components = {
   p: ({ children }) => (
-    <p className="leading-relaxed text-slate-600 dark:text-slate-300">{children}</p>
+    <p className="leading-relaxed text-slate-600 dark:text-slate-300">
+      {children}
+    </p>
   ),
   a: ({ children, href }) => (
     <a
-      href={href}
+      href={resolveRepoUrl(href)}
       target="_blank"
       rel="noopener noreferrer nofollow"
       className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
@@ -17,41 +40,71 @@ const markdownComponents: Components = {
       {children}
     </a>
   ),
-  code: ({ children }) => (
-    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-200">
-      {children}
-    </code>
-  ),
+  code: ({ children, className }) => {
+    // #652 — Inline code gets the pill background; code inside a fenced block
+    // (className starts with "language-") should NOT get it — the <pre> wrapper
+    // already provides the block background.
+    const isBlockCode = className?.startsWith("language-");
+    return (
+      <code
+        className={
+          isBlockCode
+            ? "font-mono text-sm text-slate-800 dark:text-slate-200"
+            : "rounded bg-slate-100 px-1.5 py-0.5 font-mono text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-200"
+        }
+      >
+        {children}
+      </code>
+    );
+  },
   pre: ({ children }) => (
     <pre className="overflow-x-auto rounded-xl bg-slate-100 p-4 text-sm dark:bg-slate-800">
       {children}
     </pre>
   ),
-  ul: ({ children }) => <ul className="list-disc space-y-1 pl-6">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal space-y-1 pl-6">{children}</ol>,
+  ul: ({ children }) => (
+    <ul className="list-disc space-y-1 ps-6">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-decimal space-y-1 ps-6">{children}</ol>
+  ),
   li: ({ children }) => (
     <li className="text-slate-600 dark:text-slate-300">{children}</li>
   ),
   strong: ({ children }) => (
-    <strong className="font-semibold text-slate-900 dark:text-white">{children}</strong>
+    <strong className="font-semibold text-slate-900 dark:text-white">
+      {children}
+    </strong>
   ),
   h1: ({ children }) => (
-    <h2 className="mt-4 text-xl font-semibold text-slate-900 dark:text-white">{children}</h2>
+    <h2 className="mt-4 text-xl font-semibold text-slate-900 dark:text-white">
+      {children}
+    </h2>
   ),
   h2: ({ children }) => (
-    <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">{children}</h3>
+    <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">
+      {children}
+    </h3>
   ),
   h3: ({ children }) => (
-    <h4 className="mt-3 font-semibold text-slate-900 dark:text-white">{children}</h4>
+    <h4 className="mt-3 font-semibold text-slate-900 dark:text-white">
+      {children}
+    </h4>
   ),
   h4: ({ children }) => (
-    <h5 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">{children}</h5>
+    <h5 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
+      {children}
+    </h5>
   ),
   h5: ({ children }) => (
-    <h6 className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">{children}</h6>
+    <h6 className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+      {children}
+    </h6>
   ),
   h6: ({ children }) => (
-    <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">{children}</p>
+    <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
+      {children}
+    </p>
   ),
   // Issue bodies embed screenshots from arbitrary GitHub-hosted URLs, not
   // just the hostnames next.config.ts allowlists for next/image (#215) — a
@@ -63,11 +116,11 @@ const markdownComponents: Components = {
       src={typeof src === "string" ? src : undefined}
       alt={alt ?? ""}
       loading="lazy"
-      className="max-w-full rounded-xl border border-slate-200 dark:border-slate-700"
+      className="aspect-video w-full max-w-full rounded-xl border border-slate-200 object-contain dark:border-slate-700"
     />
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-slate-300 pl-4 text-slate-500 italic dark:border-slate-700 dark:text-slate-400">
+    <blockquote className="border-s-2 border-slate-300 ps-4 text-slate-500 italic dark:border-slate-700 dark:text-slate-400">
       {children}
     </blockquote>
   ),
@@ -83,10 +136,12 @@ const markdownComponents: Components = {
   ),
   tbody: ({ children }) => <tbody>{children}</tbody>,
   tr: ({ children }) => (
-    <tr className="border-b border-slate-100 dark:border-slate-800">{children}</tr>
+    <tr className="border-b border-slate-100 dark:border-slate-800">
+      {children}
+    </tr>
   ),
   th: ({ children }) => (
-    <th className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">
+    <th className="px-3 py-2 text-start font-medium text-slate-700 dark:text-slate-300">
       {children}
     </th>
   ),
@@ -114,7 +169,10 @@ const markdownComponents: Components = {
 export function BountyDescription({ description }: { description: string }) {
   return (
     <div className="mt-6 space-y-4">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={markdownComponents}
+      >
         {description}
       </ReactMarkdown>
     </div>

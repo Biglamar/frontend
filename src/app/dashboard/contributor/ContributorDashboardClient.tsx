@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DollarSign, GitMerge, TrendingUp, ListChecks, GitPullRequest } from "lucide-react";
@@ -10,9 +10,11 @@ import { StatCard, type StatCardStatus } from "@/components/ui/StatCard";
 import { BarChart } from "@/components/ui/BarChart";
 import { Tabs } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SampleDataChip } from "@/components/ui/DataSourceNotice";
 import { BountyCard } from "@/components/bounty/BountyCard";
 import { Card } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
+import { t } from "@/lib/messages";
 import { apiRequest, fetchBounties } from "@/lib/api";
 import {
   mockReputationProfiles,
@@ -42,13 +44,33 @@ const earningsChartData = contributorEarningsHistory.map((value, i) => ({
   value,
 }));
 
+/**
+ * Where a section's numbers came from.
+ *
+ * This page has two genuinely independent fetches — the reputation/stats
+ * request and the bounty list — that feed one shared "Live data" badge and
+ * two different regions of the page. Tracking each separately is what lets
+ * the badge say "Mixed data" instead of claiming the whole page is live while
+ * the bounty lists below it are silently the bundled mock rows.
+ *
+ * - `loading` — no response yet (also the initial state, before the signed-out
+ *   branch has run).
+ * - `live`   — the backend answered.
+ * - `mock`   — signed out, or `fetchBounties` fell back to its bundled
+ *   argument after a failed request (it swallows the error internally).
+ * - `error`  — the request failed and there is no mock fallback for it; the
+ *   StatCards render their own error state rather than a fabricated zero.
+ */
+type DataSource = "loading" | "live" | "mock" | "error";
+
 export default function ContributorDashboardClient() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [bounties, setBounties] = useState<Bounty[]>(mockBounties);
-  const [isLive, setIsLive] = useState(false);
+  const [statsSource, setStatsSource] = useState<DataSource>("loading");
+  const [bountiesSource, setBountiesSource] = useState<DataSource>("loading");
   const [tab, setTabState] = useState<"active" | "completed">(
     (searchParams.get("tab") as "active" | "completed") || "active"
   );
@@ -56,7 +78,18 @@ export default function ContributorDashboardClient() {
   // flashing zeroes while the auth check + API call are in flight.
   const [fetchStatus, setFetchStatus] = useState<StatCardStatus>("loading");
 
+  // Guards the effect below against out-of-order responses. AuthContext's
+  // refresh() assigns a brand-new `user` object on every successful re-auth,
+  // so an unrelated refresh anywhere in the tree (WalletContext.connect()'s
+  // `await refresh()`, a cross-tab login, ...) re-runs this effect while the
+  // previous run's requests may still be in flight — and the reputation call
+  // hits `/reputation/:id`, not a cheap cached read. Bumping a counter on
+  // every run and dropping any response whose counter is stale means the
+  // *last-started* request wins, not whichever happened to resolve last.
+  const fetchGeneration = useRef(0);
+
   useEffect(() => {
+    const generation = ++fetchGeneration.current;
     if (loading) return;
 
     if (!user) {
@@ -69,7 +102,11 @@ export default function ContributorDashboardClient() {
         completionRate: demo.completionRate,
       });
       setFetchStatus("loaded");
-      setIsLive(false);
+      setStatsSource("mock");
+      // Signed out renders the bundled mock bounties by design, not by
+      // failure — record it as `mock` so the badge reads a truthful
+      // "Demo data" rather than falling through to the mixed case.
+      setBountiesSource("mock");
       return;
     }
 
@@ -92,18 +129,45 @@ export default function ContributorDashboardClient() {
 
     void Promise.all([bountiesResult, reputationResult]).then(
       ([bountiesRes, statsResult]) => {
+        // A newer run has started since this one — its response is the one
+        // that should land. Dropping this one is what stops a slow, earlier
+        // recompute from overwriting fresher stats.
+        if (generation !== fetchGeneration.current) return;
+
         setBounties(bountiesRes.data);
+        setBountiesSource(bountiesRes.source);
         if (statsResult) {
           setStats(statsResult);
           setFetchStatus("loaded");
+          setStatsSource("live");
         } else {
           setStats(null);
           setFetchStatus("error");
+          setStatsSource("error");
         }
-        setIsLive(true);
       },
     );
-  }, [user, loading]);
+    // Depend on `user?.id`, not the whole object: refresh() builds a fresh
+    // object each call, so an object-identity dependency re-ran this fetch
+    // for reasons that had nothing to do with *who* is signed in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, loading]);
+
+  /* The badge is a page-wide claim, so it only says "Live data" when both
+     independent fetches actually reached the backend. Anything else that
+     isn't a pure signed-out demo is "Mixed data" — a page can't be honestly
+     labelled live while half of it is the bundled fixture. While either
+     source is still in flight, keep the badge on its initial "Demo data"
+     rather than guessing. */
+  const sourcesSettled = statsSource !== "loading" && bountiesSource !== "loading";
+  const allLive = statsSource === "live" && bountiesSource === "live";
+  const allMock = statsSource === "mock" && bountiesSource === "mock";
+  const badgeLabel = !sourcesSettled ? "Demo data" : allLive ? "Live data" : allMock ? "Demo data" : "Mixed data";
+  const isLive = badgeLabel === "Live data";
+  /* Only called out sectionally in the partial-failure case: on a
+     signed-out demo the page badge already says "Demo data", so repeating
+     the chip on every list would be noise rather than information. */
+  const showBountySampleChip = sourcesSettled && bountiesSource === "mock" && statsSource !== "mock";
 
   // Derive display handle: show username if live, else demo handle.
   const handle = stats?.handle ?? (user?.username ?? "you");
@@ -128,16 +192,16 @@ export default function ContributorDashboardClient() {
     <DashboardShell
       role="contributor"
       title={`Welcome back, @${handle}`}
-      subtitle={isLive ? undefined : "Sign in with GitHub to see your own earnings and claims."}
+      subtitle={user ? undefined : "Sign in with GitHub to see your own earnings and claims."}
       badge={
         <span
           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
-            isLive
+            badgeLabel === "Live data"
               ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30"
               : "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30"
           }`}
         >
-          {isLive ? "Live data" : "Demo data"}
+          {badgeLabel}
         </span>
       }
       action={
@@ -197,24 +261,20 @@ export default function ContributorDashboardClient() {
         <Card>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Earnings, last 8 weeks</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-6">
-            <BarChart data={earningsChartData} formatValue={(v) => formatCurrency(v)} />
+            <BarChart
+              data={earningsChartData}
+              formatValue={(v) => formatCurrency(v)}
+              title="Earnings, last 8 weeks"
+            />
           </div>
         </Card>
         <div>
           <div className="flex items-center gap-2">
             <h2 className="font-medium text-slate-900 dark:text-white">Recent activity</h2>
-            {isLive && (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
-                Sample data
-              </span>
-            )}
+            {isLive && <SampleDataChip />}
           </div>
           <div className="mt-4">
             <ActivityList events={recentActivity.slice(0, 4)} />
@@ -223,7 +283,13 @@ export default function ContributorDashboardClient() {
       </div>
 
       <div className="mt-10 flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Your claims</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Your claims</h2>
+          {/* Marked in place when this list is the mock fallback but the
+              stats above it are real — the page badge alone can't say which
+              half of a "Mixed data" page you're looking at. */}
+          {showBountySampleChip && <SampleDataChip />}
+        </div>
         <Tabs
           tabs={[
             { key: "active", label: "Active", count: activeClaims.length },
@@ -233,26 +299,41 @@ export default function ContributorDashboardClient() {
           onChange={setTab}
         />
       </div>
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div
+        role="tabpanel"
+        id={`tabpanel-${tab}`}
+        aria-labelledby={`tab-${tab}`}
+        className="mt-6 grid gap-4 md:grid-cols-2"
+      >
         {shownClaims.map((bounty) => (
           <BountyCard key={bounty.id} bounty={bounty} />
         ))}
       </div>
       {shownClaims.length === 0 && (
+        /* Both tabs are "start here" states, but they say different things:
+           no active claims is an invitation to pick up work, while nothing
+           completed yet is an explanation of what completion *means* — so the
+           copy differs and only the active tab gets a forward CTA. */
         <EmptyState
           icon={GitPullRequest}
-          title={tab === "active" ? "No active claims" : "Nothing completed yet"}
-          description={
+          tone="neutral"
+          className="md:col-span-2"
+          headingLevel="h3"
+          title={t(tab === "active" ? "empty.claims.active.title" : "empty.claims.completed.title")}
+          description={t(
             tab === "active"
-              ? "Claim a bounty from the list below to get started."
-              : "Completed and paid-out bounties will show up here."
-          }
+              ? "empty.claims.active.description"
+              : "empty.claims.completed.description",
+          )}
+          /* Both tabs are dead ends without a next step, so both get the same
+             forward CTA — only the surrounding copy differs. */
           action={
-            tab === "active" ? (
-              <a href="#open-bounties" className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
-                Browse open bounties
-              </a>
-            ) : undefined
+            <a
+              href="#open-bounties"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+            >
+              {t(tab === "active" ? "empty.claims.active.cta" : "empty.claims.completed.cta")}
+            </a>
           }
         />
       )}
@@ -260,10 +341,18 @@ export default function ContributorDashboardClient() {
       {/* "available" is every open bounty in whatever order the backend/mock
           data returns, sliced to the first 4 — no relevance scoring against
           this contributor's history/languages/orgs. "Open bounties" is the
-          honest label until real personalization exists (#239). */}
-      <h2 className="mt-12 text-xl font-semibold text-slate-900 dark:text-white">
-        Open bounties
-      </h2>
+          honest label until real personalization exists (#239). The
+          `id="open-bounties"` is what the empty-state CTA above scrolls to;
+          without it that anchor pointed at nothing. */}
+      <div className="mt-12 flex items-center gap-2">
+        <h2
+          id="open-bounties"
+          className="scroll-mt-24 text-xl font-semibold text-slate-900 dark:text-white"
+        >
+          Open bounties
+        </h2>
+        {showBountySampleChip && <SampleDataChip />}
+      </div>
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         {available.slice(0, 4).map((bounty) => (
           <BountyCard key={bounty.id} bounty={bounty} />

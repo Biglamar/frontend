@@ -24,12 +24,16 @@ const PROFILE: AuthUser = {
 };
 
 function TestConsumer() {
-  const { user, loading, login, logout } = useAuth();
+  const { user, loading, login, logout, degraded } = useAuth();
   return (
     <div>
       <div data-testid="state">
         {loading ? "loading" : user ? `signed-in:${user.username}` : "signed-out"}
       </div>
+      <div data-testid="degraded">{String(degraded)}</div>
+      {/* Independent of `loading`, so a resolved user stays observable while a
+          second overlapping resolve is still pending. */}
+      <div data-testid="user">{user ? user.username : "none"}</div>
       <button onClick={() => void login("new-token")}>login</button>
       <button onClick={logout}>logout</button>
     </div>
@@ -289,5 +293,167 @@ describe("AuthContext — session hydration (#232)", () => {
 
     expect(screen.getByTestId("state")).toHaveTextContent("signed-out");
     expect(window.localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+});
+
+describe("AuthContext — loading stays true across a sign-in (#456)", () => {
+  // The flash this guards: `refresh()` never set `loading` back to true, only
+  // ever drove it true -> false. So for the whole duration of the GitHub OAuth
+  // token exchange the Navbar rendered its *signed-out* CTAs, including a live
+  // "Connect GitHub" button that would re-enter the very OAuth flow the user
+  // had just completed.
+  it("reports loading during login() rather than settling to signed-out", async () => {
+    let releaseMe: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseMe = resolve;
+    });
+    mockApiRequest.mockImplementation(async (path: string) => {
+      if (path === "/auth/me") {
+        await gate;
+        return { userId: "user-1", username: "alice" };
+      }
+      return PROFILE;
+    });
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    // Mount hydration finds no token and settles.
+    await waitFor(() =>
+      expect(screen.getByTestId("state")).toHaveTextContent("signed-out"),
+    );
+
+    fireEvent.click(screen.getByText("login"));
+
+    // Mid-exchange: still pending, NOT a settled signed-out state.
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("loading"));
+    expect(screen.getByTestId("state")).not.toHaveTextContent("signed-out");
+
+    releaseMe?.();
+    await waitFor(() =>
+      expect(screen.getByTestId("state")).toHaveTextContent("signed-in:alice"),
+    );
+  });
+
+  it("does not clear loading while a second overlapping resolve is still in flight", async () => {
+    // Mount hydration and a cross-tab re-resolve can overlap. Whichever
+    // settles first must not report "resolved" while the other is still
+    // pending, or the UI commits to a chrome it has to correct a frame later.
+    let releaseMe: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseMe = resolve;
+    });
+    let meCalls = 0;
+    mockApiRequest.mockImplementation(async (path: string) => {
+      if (path === "/auth/me") {
+        meCalls += 1;
+        if (meCalls === 1) await gate;
+        return { userId: "user-1", username: "alice" };
+      }
+      return PROFILE;
+    });
+    // A stored token is required, or the mount refresh returns before ever
+    // calling the network and there is no first resolve to overlap with.
+    window.localStorage.setItem(TOKEN_KEY, "first-token");
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    // The mount resolve is now parked inside the gated /auth/me call.
+    await waitFor(() => expect(meCalls).toBe(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: TOKEN_KEY,
+          newValue: "second-token",
+          storageArea: window.localStorage,
+        }),
+      );
+    });
+
+    await waitFor(() => expect(meCalls).toBe(2));
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("alice"));
+    // The first resolve is still outstanding, so `loading` must still be true
+    // even though a user is already resolved — the UI shows a neutral pending
+    // state rather than committing to chrome it would have to correct.
+    expect(screen.getByTestId("state")).toHaveTextContent("loading");
+
+    releaseMe?.();
+    await waitFor(() =>
+      expect(screen.getByTestId("state")).toHaveTextContent("signed-in:alice"),
+    );
+    expect(screen.getByTestId("state")).not.toHaveTextContent("loading");
+  });
+});
+
+describe("AuthContext — degraded session (#456)", () => {
+  // `user === null` means "signed out" to every consumer. When the token is
+  // valid but the backend was unreachable, that reading is wrong: the
+  // dashboards' `if (!user)` branch renders mock data, so a transient outage
+  // would present fabricated numbers as the user's own.
+  it("marks the session degraded when retries are exhausted, keeping the token", async () => {
+    mockApiRequest.mockRejectedValue(new Error("network down"));
+    window.localStorage.setItem(TOKEN_KEY, "stored-token");
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("degraded")).toHaveTextContent("true"));
+    // Signed out, not signed in — but explicitly flagged as "could not tell".
+    expect(screen.getByTestId("state")).toHaveTextContent("signed-out");
+    // The token survives: a network failure is not an invalid session.
+    expect(window.localStorage.getItem(TOKEN_KEY)).toBe("stored-token");
+  });
+
+  it("does not mark a normal signed-out session as degraded", async () => {
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("signed-out"));
+    expect(screen.getByTestId("degraded")).toHaveTextContent("false");
+  });
+
+  it("clears the degraded flag once a resolve succeeds", async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error("network down"));
+    window.localStorage.setItem(TOKEN_KEY, "stored-token");
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("degraded")).toHaveTextContent("true"));
+
+    mockApiRequest.mockImplementation(async (path: string) =>
+      path === "/auth/me" ? { userId: "user-1", username: "alice" } : PROFILE,
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: TOKEN_KEY,
+          newValue: "stored-token",
+          storageArea: window.localStorage,
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("state")).toHaveTextContent("signed-in:alice"),
+    );
+    expect(screen.getByTestId("degraded")).toHaveTextContent("false");
   });
 });

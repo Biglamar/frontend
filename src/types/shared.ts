@@ -16,6 +16,8 @@ export interface Milestone {
   budget: number;
   distributed: number;
   asset: "USDC" | "XLM";
+  status: string;
+  deadline: string | null;
   issueCount: number;
   completedCount: number;
 }
@@ -30,14 +32,22 @@ export interface ReputationProfile {
   onTimeDeliveryRate: number;
   languages: string[];
   organizations: string[];
+  /**
+   * Whether this contributor has opted into search-engine indexing of their
+   * profile page. Defaults to false — see src/lib/seo-policy.ts for the policy
+   * and the backend field this maps to.
+   */
+  indexable?: boolean;
 }
 
 export interface MaintenancePool {
   id: string;
+  name: string | null;
   repo: string;
   monthlyDeposit: number;
   balance: number;
   asset: "USDC" | "XLM";
+  status: string;
 }
 
 export interface AuthUser {
