@@ -1,6 +1,27 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+/**
+ * #651 — Resolve relative links in GitHub issue bodies to the repository URL.
+ * Relative links like `./docs` or `../CONTRIBUTING.md` resolve against the
+ * MergeFi/frontend repo instead of the site origin.
+ */
+const REPO_BASE_URL = "https://github.com/MergeFi/frontend";
+
+function resolveRepoUrl(href: string | undefined): string | undefined {
+  if (!href) return href;
+  // Skip absolute URLs (http/https/mailto/etc.)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return href;
+  // Skip anchors
+  if (href.startsWith("#")) return href;
+  // Resolve relative to repo root
+  if (href.startsWith("./") || href.startsWith("../") || href.startsWith("/")) {
+    return `${REPO_BASE_URL}/${href.replace(/^\.\//, "")}`;
+  }
+  // Bare relative path
+  return `${REPO_BASE_URL}/${href}`;
+}
+
 // Matches the design tokens already used for description text elsewhere in
 // this app (see the plain <p> this component replaces on IssueDetailPage).
 const markdownComponents: Components = {
@@ -9,7 +30,7 @@ const markdownComponents: Components = {
   ),
   a: ({ children, href }) => (
     <a
-      href={href}
+      href={resolveRepoUrl(href)}
       target="_blank"
       rel="noopener noreferrer nofollow"
       className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-indigo-400"
@@ -17,11 +38,23 @@ const markdownComponents: Components = {
       {children}
     </a>
   ),
-  code: ({ children }) => (
-    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-200">
-      {children}
-    </code>
-  ),
+  code: ({ children, className }) => {
+    // #652 — Inline code gets the pill background; code inside a fenced block
+    // (className starts with "language-") should NOT get it — the <pre> wrapper
+    // already provides the block background.
+    const isBlockCode = className?.startsWith("language-");
+    return (
+      <code
+        className={
+          isBlockCode
+            ? "font-mono text-sm text-slate-800 dark:text-slate-200"
+            : "rounded bg-slate-100 px-1.5 py-0.5 font-mono text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-200"
+        }
+      >
+        {children}
+      </code>
+    );
+  },
   pre: ({ children }) => (
     <pre className="overflow-x-auto rounded-xl bg-slate-100 p-4 text-sm dark:bg-slate-800">
       {children}

@@ -10,16 +10,19 @@ export function Avatar({
   src,
   size = 32,
   className,
+  alt,
 }: {
   seed: string;
   src?: string;
   size?: number;
   className?: string;
+  /** Alt text override. Use empty string when the avatar is decorative (next to a visible name). */
+  alt?: string;
 }) {
   return (
     <Image
       src={src ?? seedToUrl(seed)}
-      alt={seed}
+      alt={alt ?? seed}
       width={size}
       height={size}
       unoptimized={!src || src.startsWith("https://api.dicebear.com")}
