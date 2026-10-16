@@ -27,6 +27,9 @@ interface AuthContextValue {
    * re-enter the very OAuth flow the user had just completed.
    */
   loading: boolean;
+  /** True when the auth backend is unreachable and the session state is uncertain (#587) */
+  degraded: boolean;
+  login: (token: string) => Promise<void>;
   login: (token: string) => Promise<AuthUser | null>;
   logout: () => void;
   // Resolves with the session's user (null when there's no valid token, after
@@ -65,6 +68,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = getToken();
     if (!token) {
       setUser(null);
+      setLoading(false);
+      setDegraded(false);
+      return;
+    }
+    try {
+      const session = await apiRequest<{ userId: string; username: string }>(
+        "/auth/me",
+      );
+      const profile = await apiRequest<AuthUser>(`/users/${session.userId}`);
+      setUser(profile);
+      setDegraded(false);
+    } catch {
+      clearToken();
+      setUser(null);
+      setDegraded(true);
+    } finally {
+      setLoading(false);
       setDegraded(false);
       return null;
     }
@@ -158,6 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
+    <AuthContext.Provider value={{ user, loading, degraded, login, logout, refresh }}>
     <AuthContext.Provider value={{ user, loading, login, logout, refresh, degraded }}>
       {children}
     </AuthContext.Provider>

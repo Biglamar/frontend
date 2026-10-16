@@ -162,10 +162,11 @@ export async function apiRequest<T>(
   });
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export function apiPost<T>(path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   return apiRequest<T>(path, {
     method: "POST",
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
   });
 }
 
@@ -285,13 +286,14 @@ export async function fetchIndexableReputationHandles(
 ): Promise<FetchResult<string[]>> {
   try {
     const users = await request<(RawUserProfile & { id: string })[]>("/users");
-    return {
-      data: users
-        .filter((user) => user.isProfilePublic === true)
-        .map((user) => user.username)
-        .filter(Boolean),
-      source: "live",
-    };
+    // The backend's PublicUserDto currently has no isProfilePublic field,
+    // so profile indexing is effectively disabled until it ships (#598).
+    // Once the backend adds the flag, this filter will start matching.
+    const indexable = users
+      .filter((user) => user.isProfilePublic === true)
+      .map((user) => user.username)
+      .filter(Boolean);
+    return { data: indexable, source: "live" };
   } catch {
     // The mock fixtures represent contributors who have opted in, so local
     // development exercises the same code path production will take once the

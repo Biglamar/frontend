@@ -16,6 +16,8 @@ export interface Milestone {
   budget: number;
   distributed: number;
   asset: "USDC" | "XLM";
+  status: string;
+  deadline: string | null;
   issueCount: number;
   completedCount: number;
 }
@@ -40,10 +42,12 @@ export interface ReputationProfile {
 
 export interface MaintenancePool {
   id: string;
+  name: string | null;
   repo: string;
   monthlyDeposit: number;
   balance: number;
   asset: "USDC" | "XLM";
+  status: string;
 }
 
 export interface AuthUser {

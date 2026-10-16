@@ -10,6 +10,11 @@ import { formatCurrency, generateIdempotencyKey } from "@/lib/utils";
 import { ClaimButton } from "@/components/bounty/ClaimButton";
 import type { Bounty } from "@/types";
 
+/** #592 — generate a UUID for the Idempotency-Key header. */
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export function IssueActions({ bounty }: { bounty: Bounty }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -17,6 +22,10 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Idempotency keys generated once per user intent (#593), not per click.
+  // Reused for retries so a lost response + retry doesn't fund twice.
+  const [fundKey, setFundKey] = useState(() => generateIdempotencyKey());
+  const [refundKey, setRefundKey] = useState(() => generateIdempotencyKey());
 
   /**
    * Whether the signed-in user is this bounty's sponsor, i.e. the account
@@ -61,9 +70,17 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
+      const walletAddress = address ?? (await connect());
+      if (!walletAddress) {
+        setError(getWalletError() ?? "Connect a Stellar wallet to continue.");
       const result = await runWithWallet(async (walletAddress) => {
         await apiPost(`/bounties/${bounty.id}/fund`, {
           funderAddress: walletAddress,
+          idempotencyKey: fundKey,
+        });
+        setNotice("Escrow funded on-chain. This bounty is now open for claims.");
+        // Rotate key after definitive success so next fund attempt is fresh
+        setFundKey(generateIdempotencyKey());
           idempotencyKey: generateIdempotencyKey(),
         });
         setNotice("Escrow funded on-chain. This bounty is now open for claims.");
@@ -80,6 +97,39 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     }
   }
 
+  async function handleFund() {
+    await withWallet(async (walletAddress) => {
+      await apiPost(
+        `/bounties/${bounty.id}/fund`,
+        { funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
+      setNotice("Escrow funded on-chain. This bounty is now open for claims.");
+    });
+  }
+
+  async function handleClaim() {
+    setError(null);
+    setNotice(null);
+    if (!user) {
+      router.push("/connect");
+      return;
+    }
+    setPending(true);
+    try {
+      await apiPost(
+        `/bounties/${bounty.id}/claim`,
+        { contributorId: user.id },
+        generateIdempotencyKey(),
+      );
+      setNotice("You've claimed this issue. Open a pull request to get started.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
+    } finally {
+      setPending(false);
+    }
+  }
   const handleClaimSuccess = () => {
     setNotice("You've claimed this issue. Open a pull request to get started.");
     router.refresh();
@@ -106,10 +156,14 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
+      await apiPost(`/bounties/${bounty.id}/refund`, undefined, generateIdempotencyKey());
       await apiPost(`/bounties/${bounty.id}/refund`, {
+        idempotencyKey: refundKey,
         idempotencyKey: generateIdempotencyKey(),
       });
       setNotice("Escrowed funds were refunded to the sponsor.");
+      // Rotate key after definitive success
+      setRefundKey(generateIdempotencyKey());
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
@@ -123,7 +177,7 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
       <div className="flex flex-wrap gap-3">
         {bounty.status === "open" && isSponsor && (
           <Button size="lg" onClick={handleFund} loading={pending || connecting}>
-            {pending || connecting ? "Confirming in wallet..." : "Fund this bounty"}
+            {pending || connecting ? "Submitting..." : "Fund this bounty"}
           </Button>
         )}
         {bounty.status === "open" && !isSponsor && (
@@ -149,6 +203,17 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
           </Button>
         )}
         {["in_review", "merged", "release_failed", "paid", "refunded", "expired", "unknown"].includes(
+        {/*
+          Expired bounties: the backend's state machine allows EXPIRED →
+          REFUNDED so sponsors can reclaim escrow after the deadline sweep,
+          which does not refund automatically (#603).
+        */}
+        {isSponsor && bounty.status === "expired" && (
+          <Button size="lg" variant="outline" onClick={handleRefund} loading={pending}>
+            Refund sponsor (deadline passed)
+          </Button>
+        )}
+        {["in_review", "merged", "paid", "refunded"].includes(
           bounty.status,
         ) && (
           <Button size="lg" variant="outline" disabled>
@@ -161,6 +226,11 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
                   : bounty.status === "release_failed"
                     ? "Payout failed — contact support"
                     : "No action available"}
+          </Button>
+        )}
+        {bounty.status === "expired" && !isSponsor && (
+          <Button size="lg" variant="outline" disabled>
+            Deadline passed
           </Button>
         )}
       </div>

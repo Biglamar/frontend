@@ -46,7 +46,8 @@ export const metadata: Metadata = {
  */
 const STATUS_FILTERS = [
   { value: "all", label: "All" },
-  { value: "open", label: "Open" },
+  { value: "funded", label: "Claimable" },
+  { value: "open", label: "Not yet funded" },
   { value: "in_review", label: "In review" },
 ] as const satisfies readonly { value: (typeof STATUS_VALUES)[number]; label: string }[];
 
@@ -88,7 +89,7 @@ export default async function IssuesPage({
           Paid issues
         </h1>
         <p className="mt-2 max-w-2xl text-slate-500 dark:text-slate-400">
-          Every bounty below is backed by funds already locked in a Soroban
+          Funded bounties are backed by funds already locked in a Soroban
           escrow contract. Claim one, open a pull request, and get paid the
           moment it&apos;s merged.
         </p>

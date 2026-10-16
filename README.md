@@ -68,7 +68,7 @@ Next.js (App Router)                 this repo
 
 - **Framework**: Next.js 16 (App Router, React 19, TypeScript, Turbopack).
 - **Styling**: Tailwind CSS v4, dark-mode-first design system (`slate`/`emerald` palette).
-- **Data fetching**: Server Components call the backend via `src/lib/api.ts#fetchWithFallback`, which tries the live API and falls back to `src/lib/mock-data.ts` if it's unreachable — the app is fully browsable without the backend running.
+- **Data fetching**: Per-resource fetchers in `src/lib/api.ts` (`fetchBounties`, `fetchMilestones`, …) try the live API and fall back to `src/lib/mock-data.ts` if it's unreachable — the app is fully browsable without the backend running. Each fetcher returns a `FetchResult` with a `source` field (`"api"` or `"mock"`) so callers can tell where the data came from.
 - **Wallet integration**: `src/lib/wallet.ts` wraps `@stellar/freighter-api` for connecting a Stellar wallet and signing transactions (escrow funding, milestone deposits) client-side.
 - **GitHub auth**: The "Connect GitHub" button redirects to the backend's OAuth endpoint (`NEXT_PUBLIC_API_URL/auth/github`); the frontend itself holds no GitHub credentials.
 
