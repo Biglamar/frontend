@@ -17,6 +17,10 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Idempotency keys generated once per user intent (#593), not per click.
+  // Reused for retries so a lost response + retry doesn't fund twice.
+  const [fundKey, setFundKey] = useState(() => generateIdempotencyKey());
+  const [refundKey, setRefundKey] = useState(() => generateIdempotencyKey());
 
   /**
    * Whether the signed-in user is this bounty's sponsor, i.e. the account
@@ -82,6 +86,11 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
       const result = await runWithWallet(async (walletAddress) => {
         await apiPost(`/bounties/${bounty.id}/fund`, {
           funderAddress: walletAddress,
+          idempotencyKey: fundKey,
+        });
+        setNotice("Escrow funded on-chain. This bounty is now open for claims.");
+        // Rotate key after definitive success so next fund attempt is fresh
+        setFundKey(generateIdempotencyKey());
           idempotencyKey: generateIdempotencyKey(),
         });
         setNotice("Escrow funded on-chain. This bounty is now open for claims.");
@@ -125,9 +134,12 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setPending(true);
     try {
       await apiPost(`/bounties/${bounty.id}/refund`, {
+        idempotencyKey: refundKey,
         idempotencyKey: generateIdempotencyKey(),
       });
       setNotice("Escrowed funds were refunded to the sponsor.");
+      // Rotate key after definitive success
+      setRefundKey(generateIdempotencyKey());
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
