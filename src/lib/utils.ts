@@ -167,6 +167,7 @@ export function daysUntil(dateIso: string) {
 export function formatDaysUntil(days: number | null): string {
   if (days === null) return "No deadline";
   if (days > 0) return `${days} day${days === 1 ? "" : "s"} left`;
+  if (days === 0) return "Due today";
   return "Deadline passed";
 }
 
