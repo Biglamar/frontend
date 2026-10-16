@@ -1,6 +1,7 @@
 import {
   CheckCheck,
   CircleDashed,
+  CircleHelp,
   Eye,
   Flame,
   Gem,
@@ -8,6 +9,7 @@ import {
   Lock,
   Sprout,
   TimerOff,
+  TriangleAlert,
   Undo2,
   UserCheck,
   Zap,
@@ -68,6 +70,11 @@ const statusStyles: Record<BountyStatus, BadgeStyle> = {
     className:
       "bg-violet-50 text-violet-800 ring-violet-300 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/40",
   },
+  release_failed: {
+    Icon: TriangleAlert,
+    className:
+      "bg-orange-50 text-orange-800 ring-orange-300 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/40",
+  },
   paid: {
     Icon: CheckCheck,
     className:
@@ -82,6 +89,11 @@ const statusStyles: Record<BountyStatus, BadgeStyle> = {
     Icon: TimerOff,
     className:
       "bg-rose-50 text-rose-800 ring-rose-300 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/40",
+  },
+  unknown: {
+    Icon: CircleHelp,
+    className:
+      "bg-zinc-100 text-zinc-700 ring-zinc-300 ring-dashed dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-600",
   },
 };
 
@@ -139,9 +151,11 @@ const statusLabels: Record<BountyStatus, string> = {
   claimed: "Claimed",
   in_review: "In Review",
   merged: "Merged",
+  release_failed: "Payout Failed",
   paid: "Paid",
   refunded: "Refunded",
   expired: "Expired",
+  unknown: "Unknown",
 };
 
 export function StatusBadge({ status }: { status: BountyStatus }) {

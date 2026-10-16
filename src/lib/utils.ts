@@ -272,18 +272,24 @@ const VALID_STATUSES: ReadonlySet<string> = new Set<BountyStatus>([
   "claimed",
   "in_review",
   "merged",
+  "release_failed",
   "paid",
   "refunded",
   "expired",
+  "unknown",
 ]);
 
 /**
  * Validate that a raw status string is a known BountyStatus. Returns the
- * validated status or falls back to "open" for unrecognized values (#279).
+ * validated status or falls back to "unknown" for unrecognized values.
+ *
+ * Falls back to "unknown" rather than "open" (#596): mapping an unrecognized
+ * status to "open" made a bounty whose escrow release failed look claimable
+ * again on the board.
  */
 export function coerceStatus(value: string | null | undefined): BountyStatus {
   if (value && VALID_STATUSES.has(value)) return value as BountyStatus;
-  return "open";
+  return "unknown";
 }
 
 export function validateTeamSplits(
