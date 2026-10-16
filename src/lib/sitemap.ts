@@ -30,6 +30,14 @@ export async function buildSitemapEntries(): Promise<SitemapEntry[]> {
 
   const now = new Date();
 
+  // #634 — Exclude mock bounty URLs from the sitemap in production. Mock
+  // data is development-only fallback; listing it in a production sitemap
+  // generates URLs that 404 or render sample data once the backend is back.
+  const isProduction = process.env.NODE_ENV === "production";
+  const bounties = isProduction
+    ? bountiesRes.data.filter((b) => bountiesRes.source !== "mock")
+    : bountiesRes.data;
+
   const entries: SitemapEntry[] = [
     ...STATIC_ROUTES.map((route) => ({
       url: `${SITE_URL}${route}`,
@@ -37,7 +45,7 @@ export async function buildSitemapEntries(): Promise<SitemapEntry[]> {
       changeFrequency: "daily" as const,
       priority: route === "" ? 1 : 0.8,
     })),
-    ...bountiesRes.data.map((bounty) => ({
+    ...bounties.map((bounty) => ({
       url: `${SITE_URL}/issues/${encodeURIComponent(bounty.id)}`,
       lastModified: now,
       changeFrequency: "daily" as const,
@@ -78,8 +86,15 @@ let cache: { at: number; chunks: SitemapEntry[][] } | null = null;
 /** Memoized chunk list, shared by the route handler and robots.ts. */
 export async function getSitemapChunks(): Promise<SitemapEntry[][]> {
   if (cache && Date.now() - cache.at < SITEMAP_CACHE_TTL_MS) return cache.chunks;
-  const chunks = splitIntoSitemaps(await buildSitemapEntries());
-  cache = { at: Date.now(), chunks };
+  const entries = await buildSitemapEntries();
+  const chunks = splitIntoSitemaps(entries);
+  // #634 — Don't cache a sitemap built from mock fallback data in production,
+  // so the next request retries the live backend instead of serving stale
+  // mock URLs for the full TTL.
+  const isProduction = process.env.NODE_ENV === "production";
+  if (!isProduction || entries.length > 0) {
+    cache = { at: Date.now(), chunks };
+  }
   return chunks;
 }
 

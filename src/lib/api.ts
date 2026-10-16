@@ -275,3 +275,35 @@ export async function fetchIndexableReputationHandles(
     return { data: fallback, source: "mock" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Platform analytics (#633)
+// ---------------------------------------------------------------------------
+
+export interface PlatformStats {
+  totalBounties: number;
+  totalPaidOut: number;
+  totalRepos: number;
+}
+
+export async function fetchPlatformStats(
+  fallback: PlatformStats,
+): Promise<FetchResult<PlatformStats>> {
+  try {
+    const raw = await request<{
+      totalBounties: number;
+      totalPaidOut: number;
+      totalRepos: number;
+    }>("/analytics/platform");
+    return {
+      data: {
+        totalBounties: raw.totalBounties,
+        totalPaidOut: raw.totalPaidOut,
+        totalRepos: raw.totalRepos,
+      },
+      source: "live",
+    };
+  } catch {
+    return { data: fallback, source: "mock" };
+  }
+}

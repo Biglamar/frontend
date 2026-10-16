@@ -287,3 +287,176 @@ export function PoolDepositButton({
     </div>
   );
 }
+
+// ── Milestone management (#638) ──────────────────────────────────────────────
+
+/**
+ * Button that opens a dialog to create a new milestone.
+ */
+export function CreateMilestoneButton() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [repo, setRepo] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function handleCreate() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await apiPost("/milestones", { name, repo }, generateIdempotencyKey());
+      setOpen(false);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create milestone");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        Create milestone
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Create milestone
+            </h3>
+            <div className="mt-4 space-y-3">
+              <input
+                type="text"
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="owner/repo"
+                className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Milestone name"
+                className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="mt-2 text-sm text-rose-600">{error}</p>
+            )}
+            <div className="mt-4 flex gap-2">
+              <Button size="sm" onClick={handleCreate} disabled={submitting || !name || !repo}>
+                {submitting ? "Creating…" : "Create"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Button that attaches a synced issue to a milestone.
+ */
+export function AttachIssueButton({ milestoneId }: { milestoneId: string }) {
+  const [open, setOpen] = useState(false);
+  const [issueId, setIssueId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function handleAttach() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await apiPost(`/milestones/${milestoneId}/issues/${issueId}`, undefined, generateIdempotencyKey());
+      setOpen(false);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to attach issue");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        Attach issue
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Attach issue to milestone
+            </h3>
+            <div className="mt-4">
+              <input
+                type="text"
+                value={issueId}
+                onChange={(e) => setIssueId(e.target.value)}
+                placeholder="issue-id"
+                className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="mt-2 text-sm text-rose-600">{error}</p>
+            )}
+            <div className="mt-4 flex gap-2">
+              <Button size="sm" onClick={handleAttach} disabled={submitting || !issueId}>
+                {submitting ? "Attaching…" : "Attach"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Button that resolves a milestone issue and pays the contributor.
+ */
+export function ResolveIssueButton({
+  milestoneId,
+  issueId,
+}: {
+  milestoneId: string;
+  issueId: string;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function handleResolve() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await apiPost(`/milestones/${milestoneId}/issues/${issueId}/resolve`, undefined, generateIdempotencyKey());
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resolve issue");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div>
+      <Button size="sm" variant="outline" onClick={handleResolve} disabled={submitting}>
+        {submitting ? "Resolving…" : "Resolve & pay"}
+      </Button>
+      {error && (
+        <p role="alert" className="mt-1 text-xs text-rose-600">{error}</p>
+      )}
+    </div>
+  );
+}

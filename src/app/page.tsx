@@ -18,8 +18,9 @@ import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { Avatar, AvatarStack } from "@/components/ui/Avatar";
 import { ActivityList } from "@/components/dashboard/ActivityList";
+import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
 import {
-  platformStats,
+  platformStats as mockPlatformStats,
   trustedOrgs,
   topContributors,
   recentActivity,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/mock-data";
 import { formatCurrency, formatInteger } from "@/lib/utils";
 import { STELLAR_NETWORK } from "@/lib/config";
+import type { PlatformStats } from "@/lib/api";
 
 const integrations = [
   { icon: Code2, label: "GitHub" },
@@ -85,7 +87,33 @@ const features = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  // #633 — Fetch live platform stats from the backend with a 60s revalidate
+  // window. Falls back to mock values when the backend is unreachable.
+  let stats = mockPlatformStats;
+  let statsSource: "live" | "mock" = "mock";
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL ?? ""}/analytics/platform`,
+      { next: { revalidate: 60 } },
+    );
+    if (res.ok) {
+      const raw = (await res.json()) as {
+        totalBounties: number;
+        totalPaidOut: number;
+        totalRepos: number;
+      };
+      stats = {
+        totalPaidOut: raw.totalPaidOut,
+        bountiesCompleted: raw.totalBounties,
+        activeContributors: raw.totalRepos,
+        avgPayoutTimeMinutes: mockPlatformStats.avgPayoutTimeMinutes,
+      };
+      statsSource = "live";
+    }
+  } catch {
+    // Backend unreachable — fall back to mock values.
+  }
   return (
     <div>
       <section className="bg-hero-gradient bg-grid border-b border-slate-200 dark:border-slate-800">
@@ -158,27 +186,28 @@ export default function HomePage() {
       </section>
 
       <div className="mx-auto max-w-6xl px-6 py-16">
+        {statsSource === "mock" && <DataSourceNotice className="mb-6" />}
         <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <StatCard
             label="Total paid out"
-            value={platformStats.totalPaidOut}
+            value={stats.totalPaidOut}
             format="currency"
           />
           <StatCard
             label="Bounties completed"
-            value={platformStats.bountiesCompleted}
+            value={stats.bountiesCompleted}
             format="count"
           />
           <StatCard
             label="Active contributors"
-            value={platformStats.activeContributors}
+            value={stats.activeContributors}
             format="count"
           />
           {/* Avg. payout time is a duration (minutes), not a currency/count/percent —
               no existing StatCardFormat covers it, so keep as pre-formatted string. */}
           <StatCard
             label="Avg. payout time"
-            value={`${platformStats.avgPayoutTimeMinutes} min`}
+            value={`${stats.avgPayoutTimeMinutes} min`}
           />
         </section>
 
