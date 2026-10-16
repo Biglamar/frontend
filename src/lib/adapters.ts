@@ -155,6 +155,8 @@ export interface RawMilestone {
   budget: string;
   distributed: string;
   asset: "USDC" | "XLM";
+  status?: string;
+  deadline?: string | null;
   repository?: RawRepository;
   issues?: { state: "open" | "closed" }[];
 }
@@ -170,6 +172,8 @@ export function adaptMilestone(raw: RawMilestone): Milestone {
     budget,
     distributed,
     asset: raw.asset,
+    status: raw.status ?? "open",
+    deadline: raw.deadline ?? null,
     issueCount: issues.length,
     // #615 — base progress on payouts (distributed / budget), not on
     // GitHub-closed issue counts. Issues closed as "not planned", or closed
@@ -184,19 +188,23 @@ export function adaptMilestone(raw: RawMilestone): Milestone {
 
 export interface RawMaintenancePool {
   id: string;
+  name?: string | null;
   monthlyDeposit: string;
   balance: string;
   asset: "USDC" | "XLM";
+  status?: string;
   repository?: RawRepository | null;
 }
 
 export function adaptMaintenancePool(raw: RawMaintenancePool): MaintenancePool {
   return {
     id: raw.id,
+    name: raw.name ?? null,
     repo: raw.repository ? `${raw.repository.owner}/${raw.repository.name}` : "platform-wide",
     monthlyDeposit: coerceNonNegative(raw.monthlyDeposit),
     balance: coerceNonNegative(raw.balance),
     asset: raw.asset,
+    status: raw.status ?? "active",
   };
 }
 
