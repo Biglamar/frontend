@@ -195,7 +195,7 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
       <div className="flex flex-wrap gap-3">
         {bounty.status === "open" && (
           <Button size="lg" onClick={handleFund} loading={pending || connecting}>
-            {pending || connecting ? "Confirming in wallet..." : "Fund this bounty"}
+            {pending || connecting ? "Submitting..." : "Fund this bounty"}
           </Button>
         )}
         {bounty.status === "funded" && (
@@ -215,7 +215,17 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
             Refund sponsor
           </Button>
         )}
-        {["in_review", "merged", "paid", "refunded", "expired"].includes(
+        {/*
+          Expired bounties: the backend's state machine allows EXPIRED →
+          REFUNDED so sponsors can reclaim escrow after the deadline sweep,
+          which does not refund automatically (#603).
+        */}
+        {isSponsor && bounty.status === "expired" && (
+          <Button size="lg" variant="outline" onClick={handleRefund} loading={pending}>
+            Refund sponsor (deadline passed)
+          </Button>
+        )}
+        {["in_review", "merged", "paid", "refunded"].includes(
           bounty.status,
         ) && (
           <Button size="lg" variant="outline" disabled>
@@ -226,6 +236,11 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
                 : bounty.status === "merged"
                   ? "Payout pending"
                   : "No action available"}
+          </Button>
+        )}
+        {bounty.status === "expired" && !isSponsor && (
+          <Button size="lg" variant="outline" disabled>
+            Deadline passed
           </Button>
         )}
       </div>
