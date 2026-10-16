@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { useWallet } from "@/context/WalletContext";
 import { apiPost, ApiRequestError } from "@/lib/api";
 
+/** #592 — generate a UUID for the Idempotency-Key header. */
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export function MilestoneFundButton({ milestoneId }: { milestoneId: string }) {
   const router = useRouter();
   const { address, connect, connecting, getError: getWalletError } = useWallet();
@@ -18,16 +23,15 @@ export function MilestoneFundButton({ milestoneId }: { milestoneId: string }) {
     try {
       const walletAddress = address ?? (await connect());
       if (!walletAddress) {
-        // getError() reads WalletContext's specific failure reason off a
-        // ref, always current the instant connect() settles — unlike the
-        // `error` context value, which may still reflect a pre-await
-        // render (#235).
         setError(getWalletError() ?? "Connect a Stellar wallet to fund this milestone.");
         return;
       }
-      await apiPost(`/milestones/${milestoneId}/fund`, {
-        funderAddress: walletAddress,
-      });
+      // #594 — backend FundMilestoneDto only accepts funderAddress; no amount field.
+      await apiPost(
+        `/milestones/${milestoneId}/fund`,
+        { funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
@@ -63,17 +67,14 @@ export function PoolDepositButton({ poolId }: { poolId: string }) {
     try {
       const walletAddress = address ?? (await connect());
       if (!walletAddress) {
-        // getError() reads WalletContext's specific failure reason off a
-        // ref, always current the instant connect() settles — unlike the
-        // `error` context value, which may still reflect a pre-await
-        // render (#235).
         setError(getWalletError() ?? "Connect a Stellar wallet to deposit.");
         return;
       }
-      await apiPost(`/maintenance-pools/${poolId}/deposit`, {
-        amount,
-        funderAddress: walletAddress,
-      });
+      await apiPost(
+        `/maintenance-pools/${poolId}/deposit`,
+        { amount, funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");

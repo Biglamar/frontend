@@ -8,6 +8,11 @@ import { useWallet } from "@/context/WalletContext";
 import { apiPost, ApiRequestError } from "@/lib/api";
 import type { Bounty } from "@/types";
 
+/** #592 — generate a UUID for the Idempotency-Key header. */
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export function IssueActions({ bounty }: { bounty: Bounty }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -23,11 +28,6 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     try {
       const walletAddress = address ?? (await connect());
       if (!walletAddress) {
-        // connect() resolves to null on failure rather than throwing, but
-        // WalletContext already computed a specific reason (extension not
-        // installed, access denied, ...). getError() reads it synchronously
-        // off a ref rather than the (possibly stale, pre-await) `error`
-        // value from context, so it's guaranteed current here (#235).
         setError(getWalletError() ?? "Connect a Stellar wallet to continue.");
         return;
       }
@@ -42,7 +42,11 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
 
   async function handleFund() {
     await withWallet(async (walletAddress) => {
-      await apiPost(`/bounties/${bounty.id}/fund`, { funderAddress: walletAddress });
+      await apiPost(
+        `/bounties/${bounty.id}/fund`,
+        { funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
       setNotice("Escrow funded on-chain. This bounty is now open for claims.");
     });
   }
@@ -56,7 +60,11 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     }
     setPending(true);
     try {
-      await apiPost(`/bounties/${bounty.id}/claim`, { contributorId: user.id });
+      await apiPost(
+        `/bounties/${bounty.id}/claim`,
+        { contributorId: user.id },
+        generateIdempotencyKey(),
+      );
       setNotice("You've claimed this issue. Open a pull request to get started.");
       router.refresh();
     } catch (err) {
@@ -71,7 +79,7 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
-      await apiPost(`/bounties/${bounty.id}/refund`);
+      await apiPost(`/bounties/${bounty.id}/refund`, undefined, generateIdempotencyKey());
       setNotice("Escrowed funds were refunded to the sponsor.");
       router.refresh();
     } catch (err) {

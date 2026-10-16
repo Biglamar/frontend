@@ -19,8 +19,19 @@ const dashboardLinks = [
   { href: "/dashboard/sponsor", label: "Sponsor" },
 ];
 
+/** #589 — roles map used to build the accessible explanation for the count badge. */
+const roleLabels: Record<string, string> = {
+  contributor: "Contributor",
+  maintainer: "Maintainer",
+  sponsor: "Sponsor",
+};
+
 export function Navbar() {
   const { user, loading, logout } = useAuth();
+
+  // #589 — compute multi-role info so the badge carries an accessible title
+  const roles = user?.roles ?? [];
+  const multiRole = roles.length > 1;
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
@@ -44,6 +55,15 @@ export function Navbar() {
                 className="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white"
               >
                 Dashboards
+                {/* #589 — multi-role indicator with accessible title */}
+                {multiRole && (
+                  <span
+                    className="ml-1.5 inline-flex items-center justify-center rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300"
+                    title={`You have ${roles.length} roles: ${roles.map((r) => roleLabels[r] ?? r).join(", ")}`}
+                  >
+                    {roles.length}
+                  </span>
+                )}
                 <ChevronDown className="h-3.5 w-3.5" />
               </button>
               {/* group-focus-within alongside group-hover: the submenu was
