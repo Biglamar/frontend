@@ -60,11 +60,8 @@ export default async function MaintainerDashboardPage() {
       title="Bounty pipeline"
       subtitle="Create bounties from your GitHub issues and approve completed work. Payout release happens automatically once a linked pull request is merged."
       action={
-        // Bounties are created from your GitHub issues (per the subtitle
-        // above) — /issues is the same destination the contributor and
-        // sponsor dashboards' equivalent action buttons already link to
-        // for picking a bounty to work with (#241).
-        <Link href="/issues">
+        // #636 — Link to the create-bounty form instead of the bounty board.
+        <Link href="/issues/create">
           <span className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">
             Create bounty
           </span>

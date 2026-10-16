@@ -3,7 +3,7 @@ import Link from "next/link";
 import { fetchMilestones, fetchMaintenancePools } from "@/lib/api";
 import { mockMilestones, mockMaintenancePools } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/utils";
-import { MilestoneFundButton, PoolDepositButton } from "./MilestoneActions";
+import { MilestoneFundButton, PoolDepositButton, CreateMilestoneButton } from "./MilestoneActions";
 import { MilestoneFundingProgress } from "./MilestoneFundingProgress";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -58,9 +58,13 @@ export default async function MilestonesPage() {
           indistinguishable from live data. */}
       {source === "mock" && <DataSourceNotice className="mt-6" />}
 
-      <h2 className="mt-8 text-xl font-semibold text-slate-900 dark:text-white">
-        Active milestones
-      </h2>
+      <div className="mt-8 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+          Active milestones
+        </h2>
+        {/* #638 — Maintainer screen for creating a milestone. */}
+        <CreateMilestoneButton />
+      </div>
 
       {/* `md:col-span-2` so the empty state spans the grid instead of
           occupying one narrow cell. */}
