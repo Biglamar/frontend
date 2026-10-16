@@ -32,6 +32,7 @@ const EXPECTED_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "strict-origin-when-cross-origin",
   "strict-transport-security": "max-age=86400",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 };
 
 // A representative spread: the static homepage, a dynamic route, the OAuth
