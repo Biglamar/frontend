@@ -161,15 +161,24 @@ export interface RawMilestone {
 
 export function adaptMilestone(raw: RawMilestone): Milestone {
   const issues = raw.issues ?? [];
+  const budget = coerceNonNegative(raw.budget);
+  const distributed = coerceNonNegative(raw.distributed);
   return {
     id: raw.id,
     name: raw.title,
     repo: raw.repository ? `${raw.repository.owner}/${raw.repository.name}` : "unassigned",
-    budget: coerceNonNegative(raw.budget),
-    distributed: coerceNonNegative(raw.distributed),
+    budget,
+    distributed,
     asset: raw.asset,
     issueCount: issues.length,
-    completedCount: issues.filter((i) => i.state === "closed").length,
+    // #615 — base progress on payouts (distributed / budget), not on
+    // GitHub-closed issue counts. Issues closed as "not planned", or closed
+    // by a merge but not yet paid, previously inflated this number so the
+    // progress bar disagreed with the money actually paid out. When budget
+    // is zero (not yet funded), fall back to 0 rather than a meaningless
+    // division.
+    completedCount:
+      budget > 0 ? Math.floor((distributed / budget) * issues.length) : 0,
   };
 }
 
