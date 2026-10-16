@@ -1,6 +1,12 @@
-import { useSmartPolling } from './useSmartPolling';
+import { useSyncExternalStore, useCallback } from 'react';
 import { fetchBounty } from '@/lib/api';
 import type { Bounty, BountyStatus } from '@/types/bounty';
+import { TERMINAL_STATUSES } from '@/types/bounty';
+import {
+  getBountySnapshot,
+  subscribeBounty,
+  refetchBounty,
+} from './bountyPoller';
 
 interface UseBountyStatusOptions {
   bountyId: string;
@@ -21,6 +27,12 @@ interface UseBountyStatusResult {
   source: 'live' | 'mock' | null;
 }
 
+/**
+ * Shared bounty status hook — uses the module-level poller registry
+ * so multiple components on the same page share one fetch loop (#631).
+ *
+ * Stops polling once a terminal status is observed (#632).
+ */
 export function useBountyStatus({
   bountyId,
   fallbackBounty,
@@ -28,43 +40,30 @@ export function useBountyStatus({
   enabled = true,
   onStatusChange,
 }: UseBountyStatusOptions): UseBountyStatusResult {
-  const {
-    data,
-    isLoading,
-    error,
-    refetch,
-    isPolling,
-    isBackingOff,
-  } = useSmartPolling<{ data: Bounty | undefined; source: 'live' | 'mock' }>({
-    fetchFn: async () => {
-      const result = await fetchBounty(bountyId, fallbackBounty);
-      return result;
-    },
-    interval,
-    enabled,
-    backoffMultiplier: 1.5,
-    maxBackoff: 30000,
-    unchangedThreshold: 3,
-    compareFn: (a, b) => {
-      const aStatus = a?.data?.status;
-      const bStatus = b?.data?.status;
-      return aStatus === bStatus && a?.data?.claimedBy === b?.data?.claimedBy;
-    },
-    onDataChange: (result) => {
-      if (onStatusChange && result?.data?.status) {
-        onStatusChange(result.data.status);
-      }
-    },
-  });
+  const snapshot = useSyncExternalStore(
+    useCallback(
+      (onStoreChange: () => void) =>
+        enabled ? subscribeBounty(bountyId, onStoreChange, interval) : () => {},
+      [bountyId, enabled, interval],
+    ),
+    () => getBountySnapshot(bountyId),
+    () => getBountySnapshot(bountyId),
+  );
+
+  const refetch = useCallback(async () => {
+    refetchBounty(bountyId);
+  }, [bountyId]);
+
+  const status = snapshot.bounty?.status ?? null;
 
   return {
-    bounty: data?.data || null,
-    isLoading,
-    error,
+    bounty: snapshot.bounty,
+    isLoading: snapshot.loading && !snapshot.bounty,
+    error: snapshot.error,
     refetch,
-    isPolling,
-    isLive: isPolling && !isBackingOff,
-    status: data?.data?.status || null,
-    source: data?.source || null,
+    isPolling: enabled && !TERMINAL_STATUSES.has(status as BountyStatus),
+    isLive: enabled && !TERMINAL_STATUSES.has(status as BountyStatus),
+    status,
+    source: snapshot.source,
   };
 }
