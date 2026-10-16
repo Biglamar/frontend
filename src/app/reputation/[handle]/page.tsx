@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { fetchReputationByUsername } from "@/lib/api";
 import { mockReputationProfiles } from "@/lib/mock-data";
 import { profileIsIndexable } from "@/lib/seo-policy";
+import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
 import { ReputationProfileView } from "./ReputationProfileView";
 
 export async function generateMetadata({
@@ -68,9 +69,14 @@ export default async function ReputationPage({
     Object.values(mockReputationProfiles).find(
       (p) => p.handle.toLowerCase() === handle.toLowerCase(),
     ) ?? null;
-  const { data: profile } = await fetchReputationByUsername(handle, mockFallback);
+  const { data: profile, source } = await fetchReputationByUsername(handle, mockFallback);
 
   if (!profile) notFound();
 
-  return <ReputationProfileView profile={profile} />;
+  return (
+    <>
+      {source === "mock" && <DataSourceNotice className="mb-6" />}
+      <ReputationProfileView profile={profile} />
+    </>
+  );
 }
