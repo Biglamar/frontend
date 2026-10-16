@@ -10,6 +10,11 @@ import { formatCurrency, generateIdempotencyKey } from "@/lib/utils";
 import { ClaimButton } from "@/components/bounty/ClaimButton";
 import type { Bounty } from "@/types";
 
+/** #592 — generate a UUID for the Idempotency-Key header. */
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export function IssueActions({ bounty }: { bounty: Bounty }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -83,6 +88,9 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
+      const walletAddress = address ?? (await connect());
+      if (!walletAddress) {
+        setError(getWalletError() ?? "Connect a Stellar wallet to continue.");
       const result = await runWithWallet(async (walletAddress) => {
         await apiPost(`/bounties/${bounty.id}/fund`, {
           funderAddress: walletAddress,
@@ -107,6 +115,39 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     }
   }
 
+  async function handleFund() {
+    await withWallet(async (walletAddress) => {
+      await apiPost(
+        `/bounties/${bounty.id}/fund`,
+        { funderAddress: walletAddress },
+        generateIdempotencyKey(),
+      );
+      setNotice("Escrow funded on-chain. This bounty is now open for claims.");
+    });
+  }
+
+  async function handleClaim() {
+    setError(null);
+    setNotice(null);
+    if (!user) {
+      router.push("/connect");
+      return;
+    }
+    setPending(true);
+    try {
+      await apiPost(
+        `/bounties/${bounty.id}/claim`,
+        { contributorId: user.id },
+        generateIdempotencyKey(),
+      );
+      setNotice("You've claimed this issue. Open a pull request to get started.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "Something went wrong.");
+    } finally {
+      setPending(false);
+    }
+  }
   const handleClaimSuccess = () => {
     setNotice("You've claimed this issue. Open a pull request to get started.");
     router.refresh();
@@ -133,6 +174,7 @@ export function IssueActions({ bounty }: { bounty: Bounty }) {
     setNotice(null);
     setPending(true);
     try {
+      await apiPost(`/bounties/${bounty.id}/refund`, undefined, generateIdempotencyKey());
       await apiPost(`/bounties/${bounty.id}/refund`, {
         idempotencyKey: refundKey,
         idempotencyKey: generateIdempotencyKey(),
