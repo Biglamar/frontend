@@ -1,11 +1,60 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { ShieldCheck, Clock, GitBranch, Milestone as MilestoneIcon } from "lucide-react";
+import { ShieldCheck, Clock, GitBranch, Milestone as MilestoneIcon, TriangleAlert } from "lucide-react";
 import { fetchBounty } from "@/lib/api";
 import { mockBounties } from "@/lib/mock-data";
-import { StatusBadge, DifficultyBadge, Badge } from "@/components/ui/Badge";
+import { DifficultyBadge, Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
 import { BountyDescription } from "@/components/bounty/BountyDescription";
-import { formatCurrency, daysUntil } from "@/lib/utils";
+import { LiveBountyStatus } from "@/components/bounty/LiveBountyStatus";
+import { formatCurrency, daysUntil, formatDaysUntil } from "@/lib/utils";
+import type { BountyStatus } from "@/types";
 import { IssueActions } from "./IssueActions";
+
+const ESCROW_STATUS_LABELS: Record<BountyStatus, string> = {
+  open: "Awaiting funding",
+  funded: "Funds locked",
+  claimed: "Funds locked",
+  in_review: "Funds locked",
+  merged: "Funds locked",
+  paid: "Paid out",
+  refunded: "Refunded to sponsor",
+  expired: "Expired, unclaimed",
+};
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const { data: bounty } = await fetchBounty(
+    id,
+    mockBounties.find((b) => b.id === id),
+  );
+
+  if (!bounty) {
+    return { title: "Issue not found | MergeFi" };
+  }
+
+  const title = `${bounty.title} — ${formatCurrency(bounty.reward, bounty.asset)} | MergeFi`;
+  const description = bounty.description || `Fund or claim this bounty on MergeFi.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url: `/issues/${id}`,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
 
 export default async function IssueDetailPage({
   params,
@@ -13,7 +62,7 @@ export default async function IssueDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bounty = await fetchBounty(
+  const { data: bounty } = await fetchBounty(
     id,
     mockBounties.find((b) => b.id === id),
   );
@@ -21,6 +70,20 @@ export default async function IssueDetailPage({
   if (!bounty) notFound();
 
   const days = bounty.deadline ? daysUntil(bounty.deadline) : null;
+
+  // adaptBounty runs validateTeamSplits on every bounty that has a team and
+  // attaches the result as bounty.teamSplitsValid. Until now that flag was
+  // computed and then never read anywhere in the app, so splits summing to
+  // 85% or 110% rendered as a confident-looking public payout breakdown with
+  // no indication anything was wrong. Reuse validateTeamSplits' own message
+  // rather than inventing copy here; the fallback only fires in the
+  // type-theoretically-possible case where valid is false but no message was
+  // attached, and mirrors that message's exact wording.
+  const splitsWarning =
+    bounty.teamSplitsValid?.valid === false
+      ? (bounty.teamSplitsValid.message ??
+        `Team splits sum to ${bounty.teamSplitsValid.sum.toFixed(2)}% (expected 100%)`)
+      : null;
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-12">
@@ -34,59 +97,79 @@ export default async function IssueDetailPage({
         </p>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <StatusBadge status={bounty.status} />
+        <LiveBountyStatus bountyId={bounty.id} fallbackBounty={bounty} />
         <DifficultyBadge difficulty={bounty.difficulty} />
-        {bounty.labels.map((label) => (
-          <Badge key={label}>{label}</Badge>
-        ))}
+        <ul role="list" className="contents">
+          {bounty.labels.map((label) => (
+            <li key={label}>
+              <Badge>{label}</Badge>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <BountyDescription description={bounty.description} />
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className={`mt-8 grid gap-4 ${bounty.milestoneId ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
+        <Card padding="sm">
           <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <ShieldCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <ShieldCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
             <span className="text-sm">Escrow status</span>
           </div>
           <p className="mt-2 font-medium text-slate-900 dark:text-white">
-            {bounty.status === "open" ? "Awaiting funding" : "Funds locked"}
+            {ESCROW_STATUS_LABELS[bounty.status]}
           </p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        </Card>
+        <Card padding="sm">
           <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
             <span className="text-sm">Deadline</span>
           </div>
           <p className="mt-2 font-medium text-slate-900 dark:text-white">
-            {days === null ? "No deadline" : days > 0 ? `${days} days left` : "Passed"}
+            {formatDaysUntil(days)}
           </p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        </Card>
+        <Card padding="sm">
           <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <GitBranch className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <GitBranch className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
             <span className="text-sm">Claimed by</span>
           </div>
           <p className="mt-2 font-medium text-slate-900 dark:text-white">
             {bounty.claimedBy ?? "Unclaimed"}
           </p>
-        </div>
+        </Card>
         {bounty.milestoneId && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <Card padding="sm">
             <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-              <MilestoneIcon className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+              <MilestoneIcon className="h-4 w-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
               <span className="text-sm">Milestone</span>
             </div>
             <p className="mt-2 font-medium text-slate-900 dark:text-white">
               Part of a funded milestone
             </p>
-          </div>
+          </Card>
         )}
       </div>
 
-      {bounty.teamSplits && (
+      {bounty.teamSplits && bounty.teamSplits.length > 0 && (
         <div className="mt-8">
           <h2 className="font-medium text-slate-900 dark:text-white">Team payout split</h2>
+          {splitsWarning && (
+            <div
+              role="alert"
+              className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+            >
+              <TriangleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">This payout split doesn&apos;t add up</p>
+                <p className="mt-1">
+                  {splitsWarning} — the listed shares don&apos;t cover the full
+                  reward, so don&apos;t rely on them until the team&apos;s split
+                  has been corrected.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="mt-3 space-y-2">
             {bounty.teamSplits.map((split, index) => (
               <div
@@ -101,7 +184,10 @@ export default async function IssueDetailPage({
                   {split.role}
                   {split.contributor ? ` (${split.contributor})` : ""}
                 </span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                {/* emerald-700 rather than emerald-600: 3.77:1 on white fails
+                    WCAG AA for text, and this is a payout figure. emerald-700
+                    measures 5.48:1. Dark mode already passed at 9.29:1. */}
+                <span className="font-medium text-emerald-700 dark:text-emerald-400">
                   {split.percentage}%
                 </span>
               </div>

@@ -7,8 +7,11 @@ import { ActivityList } from "@/components/dashboard/ActivityList";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusBadge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SampleDataChip } from "@/components/ui/DataSourceNotice";
 import { Avatar } from "@/components/ui/Avatar";
-import { formatCurrency } from "@/lib/utils";
+import { Card } from "@/components/ui/Card";
+import { formatCurrency, sumMoney } from "@/lib/utils";
+import { t } from "@/lib/messages";
 import { PipelineBoard, ESCROW_LOCKED_EXCLUDED_STATUSES } from "./PipelineBoard";
 
 export const metadata = {
@@ -26,15 +29,20 @@ export default async function MaintainerDashboardPage() {
   // fetch, so this reliably distinguishes "live data" from "backend down,
   // showing mockBounties" without changing fetchBounties' shared contract
   // (#240).
-  const bounties = await fetchBounties(mockBounties);
-  const statStatus: "loaded" | "error" = bounties === mockBounties ? "error" : "loaded";
+  const { data: bounties, source } = await fetchBounties(mockBounties);
+  const statStatus: "loaded" | "error" = source === "live" ? "loaded" : "error";
 
   const needsReview = bounties.filter((b) => b.status === "in_review");
   const open = bounties.filter((b) => b.status === "open" || b.status === "funded");
   const repoCount = new Set(bounties.map((b) => `${b.org}/${b.repo}`)).size;
-  const totalEscrow = bounties
-    .filter((b) => !ESCROW_LOCKED_EXCLUDED_STATUSES.includes(b.status))
-    .reduce((sum, b) => sum + b.reward, 0);
+  // Summed in integer minor units to avoid float drift (#353). 7 decimals
+  // covers both USDC (2) and XLM (7) rewards without truncation.
+  const totalEscrow = sumMoney(
+    bounties
+      .filter((b) => !ESCROW_LOCKED_EXCLUDED_STATUSES.includes(b.status))
+      .map((b) => b.reward),
+    7,
+  );
 
   return (
     <DashboardShell
@@ -100,9 +108,10 @@ export default async function MaintainerDashboardPage() {
           </h2>
           <div className="mt-4 space-y-3">
             {needsReview.map((bounty) => (
-              <div
+              <Card
                 key={bounty.id}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                padding="sm"
+                className="flex items-center justify-between gap-4"
               >
                 <div className="flex items-center gap-3">
                   <Avatar seed={`${bounty.org}/${bounty.repo}`} size={36} className="rounded-xl" />
@@ -124,21 +133,39 @@ export default async function MaintainerDashboardPage() {
                     {formatCurrency(bounty.reward, bounty.asset)}
                   </span>
                 </div>
-              </div>
+              </Card>
             ))}
             {needsReview.length === 0 && (
+              /* A maintainer with zero items to review has *finished*, not
+                 failed — the review queue draining is the success case. Toned
+                 as success with no CTA pushing more work at them, and the
+                 secondary action points at bounties they could open rather
+                 than at more reviews. */
               <EmptyState
                 icon={CheckCircle2}
-                title="All caught up"
-                description="No pull requests are waiting on your review right now."
+                tone="success"
+                size="sm"
+                title={t("empty.review.clear.title")}
+                description={t("empty.review.clear.description")}
+                secondaryAction={
+                  <Link
+                    href="/issues"
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                  >
+                    {t("empty.review.clear.cta")}
+                  </Link>
+                }
               />
             )}
           </div>
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-            Recent activity
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+              Recent activity
+            </h2>
+            {source === "mock" && <SampleDataChip />}
+          </div>
           <div className="mt-4">
             <ActivityList events={recentActivity.slice(0, 5)} />
           </div>

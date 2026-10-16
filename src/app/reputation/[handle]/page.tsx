@@ -1,10 +1,62 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { fetchReputationByUsername } from "@/lib/api";
 import { mockReputationProfiles } from "@/lib/mock-data";
-import { StatCard } from "@/components/ui/StatCard";
-import { Badge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Avatar";
-import { formatCurrency, formatPercent } from "@/lib/utils";
+import { profileIsIndexable } from "@/lib/seo-policy";
+import { ReputationProfileView } from "./ReputationProfileView";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ handle: string }>;
+}): Promise<Metadata> {
+  const { handle } = await params;
+  const mockFallback =
+    Object.values(mockReputationProfiles).find(
+      (p) => p.handle.toLowerCase() === handle.toLowerCase(),
+    ) ?? null;
+  const { data: profile } = await fetchReputationByUsername(handle, mockFallback);
+
+  if (!profile) {
+    return { title: "Profile not found | MergeFi" };
+  }
+
+  const title = `@${profile.handle} | MergeFi`;
+  const description = `${profile.mergedPRs} merged PRs · ${profile.languages.slice(0, 3).join(", ")}`;
+
+  return {
+    title,
+    description,
+    // The noindex fallback required by the policy in src/lib/seo-policy.ts.
+    // Omitting a profile from the sitemap is not sufficient on its own: a URL
+    // that has already been crawled (shared in a Slack channel, a GitHub
+    // profile README, a search result from before the policy existed) can
+    // still get indexed from an inbound link, and robots.txt can't express
+    // "this one page is private, the rest aren't". So every profile that
+    // hasn't opted in states it explicitly in the document head.
+    //
+    // Deliberately not an X-Robots-Tag header: a header can only be set for a
+    // whole route match in next.config.ts, which would noindex opted-in
+    // profiles too. Per-page metadata is the granularity this policy needs.
+    //
+    // A static header for all /reputation/* was also rejected for the same
+    // reason — see the robots.ts comment for why robots.txt must not
+    // disallow this path either.
+    robots: profileIsIndexable(profile)
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
+    openGraph: {
+      title,
+      description,
+      url: `/reputation/${handle}`,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
 
 export default async function ReputationPage({
   params,
@@ -12,71 +64,13 @@ export default async function ReputationPage({
   params: Promise<{ handle: string }>;
 }) {
   const { handle } = await params;
-  // mockReputationProfiles is keyed by exact-case username; look it up
-  // case-insensitively too, matching fetchReputationByUsername's own fix
-  // for the same "GitHub usernames are case-insensitive" issue (#245).
   const mockFallback =
     Object.values(mockReputationProfiles).find(
       (p) => p.handle.toLowerCase() === handle.toLowerCase(),
     ) ?? null;
-  const profile = await fetchReputationByUsername(handle, mockFallback);
+  const { data: profile } = await fetchReputationByUsername(handle, mockFallback);
 
   if (!profile) notFound();
 
-  return (
-    <div className="mx-auto max-w-4xl px-6 py-12">
-      <div className="flex items-center gap-4">
-        <Avatar seed={profile.handle} src={profile.avatarUrl} size={64} className="rounded-2xl" />
-        <div>
-          <h1 className="text-3xl font-semibold text-slate-900 dark:text-white">
-            @{profile.handle}
-          </h1>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {profile.organizations.map((org) => (
-              <Badge key={org}>{org}</Badge>
-            ))}
-            {profile.organizations.length === 0 && (
-              <span className="text-sm text-slate-400 dark:text-slate-500">
-                No contributions recorded yet.
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard
-          label="Lifetime earnings"
-          value={formatCurrency(profile.lifetimeEarnings)}
-        />
-        <StatCard label="Merged PRs" value={String(profile.mergedPRs)} />
-        <StatCard
-          label="Completion rate"
-          value={formatPercent(profile.completionRate)}
-        />
-        <StatCard
-          label="On-time delivery"
-          value={formatPercent(profile.onTimeDeliveryRate)}
-        />
-      </div>
-
-      <div className="mt-8">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="font-medium text-slate-900 dark:text-white">Languages</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {profile.languages.map((lang) => (
-              <Badge key={lang}>{lang}</Badge>
-            ))}
-            {profile.languages.length === 0 && (
-              <span className="text-sm text-slate-400 dark:text-slate-500">No data yet.</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <p className="mt-8 text-sm text-slate-500 dark:text-slate-400">
-        Average review time: {profile.avgReviewTimeHours.toFixed(1)}h
-      </p>
-    </div>
-  );
+  return <ReputationProfileView profile={profile} />;
 }

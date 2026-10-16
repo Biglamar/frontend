@@ -22,10 +22,12 @@
  * always available via the title attribute (keyboard-navigable, hover tooltip).
  */
 
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency, formatInteger, formatPercent } from "@/lib/utils";
+import { isRTLLocale, resolveLocale } from "@/lib/locale";
 import { ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Sparkline } from "./Sparkline";
+import { Card } from "./Card";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -75,23 +77,25 @@ function formatValue(
   value: number,
   format: StatCardFormat,
   asset: "USDC" | "XLM",
+  locale: string,
 ): { display: string; exact: string } {
   switch (format) {
     case "currency": {
-      const formatted = value.toLocaleString("en-US", {
-        maximumFractionDigits: 2,
-      });
-      const display = `${formatted} ${asset}`;
-      // Exact value for tooltip always shows full precision
-      const exact = `${value.toLocaleString("en-US", { maximumFractionDigits: 6 })} ${asset}`;
-      return { display, exact };
+      const formatted = formatCurrency(value, asset, locale);
+      return { display: formatted, exact: formatted };
     }
     case "percent": {
-      const pct = `${Math.round(value * 100)}%`;
+      // Was inline `${Math.round(value * 100)}%`, a fourth hardcoded en-US
+      // formatting site. Now routed through the shared locale-aware helper so
+      // de-DE renders "94 %" and the sign placement follows CLDR (#456).
+      const pct = formatPercent(value, locale);
       return { display: pct, exact: pct };
     }
     case "count": {
-      const s = value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+      // Was `value.toLocaleString("en-US", …)` — a second, divergent money
+      // formatting path in the same component that also called
+      // `formatCurrency`, so counts and currencies disagreed on separators.
+      const s = formatInteger(value, locale);
       return { display: s, exact: s };
     }
     case "raw":
@@ -135,16 +139,17 @@ export function StatCard({
   className,
 }: StatCardProps) {
   const trendUp = typeof trend === "number" && trend >= 0;
+  // Resolved once per render and threaded into every formatter below so a card
+  // cannot mix locales across its own value, trend, and sparkline (#456).
+  const locale = resolveLocale();
 
   // ── Shared card shell ────────────────────────────────────────────────────
   const shell = (children: React.ReactNode, ariaLabel?: string) => (
-    <div
+    <Card
       role="region"
       aria-label={ariaLabel ?? label}
-      className={cn(
-        "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900",
-        className,
-      )}
+      padding="md"
+      className={className}
     >
       {/* Header row: label + icon */}
       <div className="flex items-center justify-between">
@@ -154,12 +159,12 @@ export function StatCard({
             data-testid="statcard-icon"
             className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-500/10"
           >
-            <Icon className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <Icon aria-hidden="true" className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
           </span>
         )}
       </div>
       {children}
-    </div>
+    </Card>
   );
 
   // ── LOADING state ────────────────────────────────────────────────────────
@@ -200,7 +205,7 @@ export function StatCard({
   let exactStr: string;
 
   if (typeof value === "number") {
-    const formatted = formatValue(value, format, asset);
+    const formatted = formatValue(value, format, asset, locale);
     displayStr = formatted.display;
     exactStr = formatted.exact;
   } else {
@@ -258,9 +263,9 @@ export function StatCard({
             )}
           >
             {trendUp ? (
-              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowUpRight className="h-3.5 w-3.5 rtl:rotate-90" aria-hidden="true" />
             ) : (
-              <ArrowDownRight className="h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowDownRight className="h-3.5 w-3.5 rtl:-rotate-90" aria-hidden="true" />
             )}
             {Math.abs(trend)}% vs last period
           </p>
@@ -272,7 +277,10 @@ export function StatCard({
           in this row (#207). */}
       {sparkline && sparkline.length >= 2 && (
         <div data-testid="statcard-sparkline" className="text-indigo-500 dark:text-indigo-400">
-          <Sparkline data={sparkline} />
+          {/* The card's own label becomes the sparkline's accessible name, so
+              the trend is announced as "Earnings: 8 data points, trending up
+              from …" rather than as an unlabelled graphic. */}
+          <Sparkline data={sparkline} label={label} />
         </div>
       )}
     </div>,

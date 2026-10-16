@@ -66,10 +66,14 @@ describe("BountyCard — description preview", () => {
 });
 
 describe("BountyCard — deadline countdown (#216)", () => {
-  it('shows "Xd left" for a future deadline', () => {
+  it('shows "X days left" for a future deadline', () => {
+    // formatDaysUntil (src/lib/utils.ts) is the actual, deliberate
+    // implementation this renders through — properly pluralized ("1 day
+    // left" vs "N days left"), not the abbreviated "Xd left" this test
+    // previously (and incorrectly) expected.
     const deadline = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
     render(<BountyCard bounty={makeBounty({ deadline })} />);
-    expect(screen.getByText("5d left")).toBeInTheDocument();
+    expect(screen.getByText("5 days left")).toBeInTheDocument();
   });
 
   it('shows "Deadline passed" for a past deadline', () => {
@@ -82,13 +86,16 @@ describe("BountyCard — deadline countdown (#216)", () => {
 describe("BountyCard — status/difficulty badges (#216)", () => {
   it("renders the status and difficulty badges for a given bounty", () => {
     render(<BountyCard bounty={makeBounty({ status: "funded", difficulty: "advanced" })} />);
-    expect(screen.getByText("funded")).toBeInTheDocument();
+    expect(screen.getByText("Funded")).toBeInTheDocument();
     expect(screen.getByText("advanced")).toBeInTheDocument();
   });
 
-  it('renders the "in review" space transform for the in_review status', () => {
+  it('renders "In Review" for the in_review status, never the raw enum key', () => {
+    // Was a lower-case "in review" here while BountyStatus.tsx independently
+    // rendered "In Review" for the same enum — one bounty, two labels (#456).
     render(<BountyCard bounty={makeBounty({ status: "in_review" })} />);
-    expect(screen.getByText("in review")).toBeInTheDocument();
+    expect(screen.getByText("In Review")).toBeInTheDocument();
+    expect(screen.queryByText("in_review")).not.toBeInTheDocument();
   });
 });
 
