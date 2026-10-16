@@ -91,6 +91,18 @@ describe("IssueActions — action buttons per bounty.status", () => {
     expect(buttonNames()).toEqual(["Fund this bounty"]);
   });
 
+  it("open + non-sponsor → disabled 'Awaiting sponsor funding', no fund CTA", () => {
+    mockUser({ id: "someone-else", stellarAddress: null });
+    render(<IssueActions bounty={makeBounty("open")} />);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveTextContent("Awaiting sponsor funding");
+    expect(buttons[0]).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /fund/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("funded → 'Claim Bounty' and 'Refund sponsor'", () => {
     render(<IssueActions bounty={makeBounty("funded")} />);
     expect(buttonNames()).toEqual(["Claim Bounty", "Refund sponsor"]);
@@ -104,8 +116,11 @@ describe("IssueActions — action buttons per bounty.status", () => {
   it.each([
     ["in_review", "Awaiting PR merge"],
     ["merged", "Payout pending"],
+    ["release_failed", "Payout failed — contact support"],
     ["paid", "Payout complete"],
     ["refunded", "No action available"],
+    ["expired", "No action available"],
+    ["unknown", "No action available"],
   ] as const)(
     "%s → a single disabled '%s' button and no money-moving action",
     (status, label) => {

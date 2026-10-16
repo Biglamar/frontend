@@ -52,9 +52,11 @@ describe("IssueDetailPage", () => {
     ["claimed", "Funds locked"],
     ["in_review", "Funds locked"],
     ["merged", "Funds locked"],
+    ["release_failed", "Payout failed — funds still locked"],
     ["paid", "Paid out"],
     ["refunded", "Refunded to sponsor"],
     ["expired", "Expired, unclaimed"],
+    ["unknown", "Status unavailable"],
   ] as const)(
     "shows the escrow label for %s bounties",
     async (status, label) => {

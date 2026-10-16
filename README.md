@@ -115,6 +115,20 @@ every page renders against the bundled mock data in `src/lib/mock-data.ts` —
 useful for frontend-only development or a quick demo. Point
 `NEXT_PUBLIC_API_URL` at a running `mergefi-backend` instance to see live data.
 
+### Local port convention
+
+Keep these ports consistent when running frontend and backend together (#599):
+
+| Service            | URL                        | Notes                                                                 |
+| ------------------ | -------------------------- | --------------------------------------------------------------------- |
+| Next.js (this app) | `http://localhost:3000`    | Default `next dev` port — leave it here.                              |
+| mergefi-backend    | `http://localhost:4000`    | Set `PORT=4000` in the backend's `.env` so it does not collide.       |
+| OAuth / CORS       | `FRONTEND_URL=http://localhost:3000` | Backend's CORS origin and GitHub OAuth redirect must match the SPA. |
+
+`NEXT_PUBLIC_API_URL` in `.env.example` already points at `:4000`. If you
+leave the backend on its own default `PORT=3000`, the API calls will hit the
+Next.js server instead of the API.
+
 ### Environment variables
 
 Both `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_STELLAR_NETWORK` are validated at build time (`next.config.ts` / `src/lib/env.ts`, #26) — an unset or invalid value fails `next build`/`next dev`/`next start` immediately with a clear error, rather than silently falling back and only surfacing as a confusing on-chain failure later. `NEXT_PUBLIC_SITE_URL` is not build-time validated — it falls back to `https://mergefi.app` if unset. `.env.example` sets all three explicitly, so the quickstart above needs no manual edits.

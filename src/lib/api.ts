@@ -233,13 +233,37 @@ export async function fetchReputationByUsername(
   fallback: ReputationProfile | null,
 ): Promise<FetchResult<ReputationProfile | null>> {
   try {
-    const users = await request<(RawUserProfile & { id: string })[]>("/users");
+    // Prefer the public read path (#597). `GET /users` is JWT-gated and
+    // `GET /reputation/:id` is owner-only, so the old pair always 401/403'd
+    // for anonymous profile views and fell through to mock data. The
+    // by-username endpoint is the intended public lookup; the legacy pair is
+    // kept as a secondary attempt for backends that still expose it.
     const target = username.toLowerCase();
-    const user = users.find((u) => u.username.toLowerCase() === target);
-    if (!user) return { data: fallback, source: "mock" };
-    const snapshot = await request<RawReputationSnapshot | null>(
-      `/reputation/${user.id}`,
-    );
+    let user: (RawUserProfile & { id: string }) | undefined;
+    try {
+      user = await request<RawUserProfile & { id: string }>(
+        `/users/by-username/${encodeURIComponent(username)}`,
+      );
+    } catch {
+      const users = await request<(RawUserProfile & { id: string })[]>("/users");
+      user = users.find((u) => u.username.toLowerCase() === target);
+    }
+    if (!user?.id) return { data: fallback, source: "mock" };
+
+    let snapshot: RawReputationSnapshot | null = null;
+    try {
+      snapshot = await request<RawReputationSnapshot | null>(
+        `/reputation/${user.id}/latest`,
+      );
+    } catch {
+      try {
+        snapshot = await request<RawReputationSnapshot | null>(
+          `/reputation/${user.id}`,
+        );
+      } catch {
+        snapshot = null;
+      }
+    }
     return { data: adaptReputation(user, snapshot), source: "live" };
   } catch {
     return { data: fallback, source: "mock" };

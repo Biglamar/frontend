@@ -24,22 +24,27 @@ export const pipelineStages: { status: BountyStatus; label: string }[] = [
   { status: "claimed", label: "Claimed" },
   { status: "in_review", label: "In review" },
   { status: "merged", label: "Awaiting payout" },
+  { status: "release_failed", label: "Payout failed" },
 ];
 
 // Statuses excluded from "Value locked in escrow" on the page above: "open"
 // hasn't been funded yet (nothing in escrow to lock), and
-// "paid"/"refunded"/"expired" have already left escrow. Every other status
-// -- "funded", "claimed", "in_review", "merged" -- is still escrow-locked
-// and must have a corresponding entry in pipelineStages above. Kept in the
-// same file as pipelineStages specifically so the two can't silently drift
-// apart the way they did before #88 (the stat counted "merged" as
-// escrow-locked while the board had no column for it) -- see the
-// consistency test in PipelineBoard.test.tsx.
+// "paid"/"refunded"/"expired" have already left escrow. "release_failed" and
+// "unknown" are also excluded: release_failed still holds funds but is a
+// break-glass state tracked on its own column, and unknown is not a real
+// escrow state. Every other status -- "funded", "claimed", "in_review",
+// "merged" -- is still escrow-locked and must have a corresponding entry in
+// pipelineStages above. Kept in the same file as pipelineStages specifically
+// so the two can't silently drift apart the way they did before #88 (the stat
+// counted "merged" as escrow-locked while the board had no column for it) --
+// see the consistency test in PipelineBoard.test.tsx.
 export const ESCROW_LOCKED_EXCLUDED_STATUSES: BountyStatus[] = [
   "open",
+  "release_failed",
   "paid",
   "refunded",
   "expired",
+  "unknown",
 ];
 
 // Cap per-column rendering so a busy repo's pipeline (potentially hundreds
