@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ShieldCheck, Clock, GitBranch, Milestone as MilestoneIcon, TriangleAlert } from "lucide-react";
 import { fetchBounty } from "@/lib/api";
 import { mockBounties } from "@/lib/mock-data";
+import { stripMarkdownToPlainText } from "@/lib/markdown";
 import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
 import { DifficultyBadge, Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -41,7 +42,13 @@ export async function generateMetadata({
   }
 
   const title = `${bounty.title} — ${formatCurrency(bounty.reward, bounty.asset)} | MergeFi`;
-  const description = bounty.description || `Fund or claim this bounty on MergeFi.`;
+  // #629: Strip markdown and truncate to ~160 chars on a word boundary for
+  // clean OG/Twitter descriptions and search snippets.
+  const rawDesc = bounty.description || `Fund or claim this bounty on MergeFi.`;
+  const plainDesc = stripMarkdownToPlainText(rawDesc);
+  const description = plainDesc.length <= 160
+    ? plainDesc
+    : plainDesc.slice(0, 160).replace(/\s+\S*$/, "") + "…";
 
   return {
     title,
