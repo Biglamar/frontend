@@ -22,7 +22,6 @@
  * always available via the title attribute (keyboard-navigable, hover tooltip).
  */
 
-import { cn, formatCurrency, getNumberFormat } from "@/lib/utils";
 import { cn, formatCurrency, formatInteger, formatPercent } from "@/lib/utils";
 import { isRTLLocale, resolveLocale } from "@/lib/locale";
 import { ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react";
@@ -93,8 +92,6 @@ function formatValue(
       return { display: pct, exact: pct };
     }
     case "count": {
-      // Use cached formatter to avoid hydration mismatch (#656).
-      const s = getNumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
       // Was `value.toLocaleString("en-US", …)` — a second, divergent money
       // formatting path in the same component that also called
       // `formatCurrency`, so counts and currencies disagreed on separators.
@@ -282,8 +279,12 @@ export function StatCard({
         <div data-testid="statcard-sparkline" className="text-indigo-500 dark:text-indigo-400">
           {/* The card's own label becomes the sparkline's accessible name, so
               the trend is announced as "Earnings: 8 data points, trending up
-              from …" rather than as an unlabelled graphic. */}
-          <Sparkline data={sparkline} label={label} />
+              from …" rather than as an unlabelled graphic (#709). */}
+          <Sparkline
+            data={sparkline}
+            label={label}
+            formatValue={(v) => formatValue(v, format, asset, locale).display}
+          />
         </div>
       )}
     </div>,

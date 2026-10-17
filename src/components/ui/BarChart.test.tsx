@@ -44,39 +44,28 @@ describe("BarChart accessibility", () => {
 
     const bars = container.querySelectorAll("div[aria-hidden='true'] > div");
     expect(bars.length).toBeGreaterThan(0);
-    // The bars are focusable for sighted keyboard users, but sit inside an
-    // aria-hidden subtree so assistive tech relies on the table alone.
-    const firstBar = container.querySelector<HTMLElement>("[tabindex='0']");
-    expect(firstBar).toBeInTheDocument();
-    expect(firstBar!.closest("[aria-hidden='true']")).not.toBeNull();
+    // Bars inside aria-hidden must NOT be focusable (no tabindex) to comply with
+    // axe's aria-hidden-focus rule (#708)
+    const focusable = container.querySelectorAll("[tabindex]");
+    expect(focusable).toHaveLength(0);
   });
 
-  it("makes each bar keyboard focusable with a visible focus ring", () => {
-    const { container } = render(<BarChart data={DATA} title="Spend" />);
-
-    const focusable = container.querySelectorAll("[tabindex='0']");
-    expect(focusable).toHaveLength(DATA.length);
-    for (const bar of Array.from(focusable)) {
-      expect(bar.className).toContain("focus-visible:outline-2");
-    }
-  });
-
-  it("reveals the same tooltip on keyboard focus as on hover", () => {
+  it("reveals tooltip on hover", () => {
     const { container } = render(
       <BarChart data={DATA} formatValue={(v) => `$${v}`} title="Spend" />,
     );
 
     const tooltip = container.querySelector("[aria-hidden='true'] span");
     expect(tooltip).toHaveTextContent("Week 1: $120");
-    // group-focus-within is what makes the focus-reachable tooltip visible.
-    expect(tooltip!.className).toContain("group-focus-within:opacity-100");
     expect(tooltip!.className).toContain("group-hover:opacity-100");
   });
 
   it("draws a stripe pattern on negative bars as a non-colour sign cue", () => {
     const { container } = render(<BarChart data={DATA} title="Spend" />);
 
-    const bars = Array.from(container.querySelectorAll<HTMLElement>("[tabindex='0']"));
+    const bars = Array.from(
+      container.querySelectorAll<HTMLElement>(".relative > div"),
+    );
     expect(bars[1].style.backgroundImage).toContain("repeating-linear-gradient");
     expect(bars[0].style.backgroundImage).toBe("");
   });

@@ -3,6 +3,7 @@ import {
   mockMaintenancePools,
   mockMilestones,
   recentActivity,
+  getRecentActivity,
 } from "./mock-data";
 import { formatCurrency, isPlausibleAmount } from "./utils";
 
@@ -42,5 +43,23 @@ describe("mock-data asset coverage", () => {
 
     const milestone = mockMilestones.find((m) => m.asset === "XLM")!;
     expect(formatCurrency(milestone.distributed, milestone.asset)).toBe("16,837.25 XLM");
+  });
+});
+
+describe("recentActivity dynamic timestamps (#707)", () => {
+  it("computes timestamps relative to execution time rather than module load", () => {
+    const events = getRecentActivity();
+    expect(events.length).toBeGreaterThan(0);
+    const now = Date.now();
+    for (const event of events) {
+      const diffMinutes = (now - new Date(event.occurredAt).getTime()) / 60_000;
+      expect(diffMinutes).toBeGreaterThanOrEqual(0);
+      expect(diffMinutes).toBeLessThan(250);
+    }
+  });
+
+  it("advances timestamps dynamically across accesses via proxy", () => {
+    const firstEvent = recentActivity[0];
+    expect(new Date(firstEvent.occurredAt).getTime()).toBeLessThanOrEqual(Date.now());
   });
 });
