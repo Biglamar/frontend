@@ -41,14 +41,18 @@ export const metadata: Metadata = {
 };
 
 /**
- * Filter values offered by the status facet. `open` and `in_review` are the
- * two a contributor actually filters by; `all` clears the facet.
+ * Filter values offered by the status facet. Every pipeline status
+ * is filterable so the dashboard's "View all" links land on a matching view;
+ * `all` clears the facet.
  */
 const STATUS_FILTERS = [
   { value: "all", label: "All" },
   { value: "funded", label: "Claimable" },
   { value: "open", label: "Not yet funded" },
+  { value: "claimed", label: "Claimed" },
   { value: "in_review", label: "In review" },
+  { value: "merged", label: "Awaiting payout" },
+  { value: "release_failed", label: "Payout failed" },
 ] as const satisfies readonly { value: (typeof STATUS_VALUES)[number]; label: string }[];
 
 const DIFFICULTY_LABELS: Record<(typeof DIFFICULTY_VALUES)[number], string> = {
