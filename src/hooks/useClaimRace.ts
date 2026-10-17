@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiPost, fetchBounty } from '@/lib/api';
 import { adaptBounty, type RawBounty } from '@/lib/adapters';
+import { generateIdempotencyKey } from '@/lib/utils';
 import type { Bounty, ClaimResult } from '@/types/bounty';
 
 interface ApiError {
@@ -16,6 +17,10 @@ export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty)
   // skip state updates once unmounted. Set to true in the effect body too so
   // React Strict Mode's simulated unmount/remount doesn't leave it false.
   const isMountedRef = useRef(true);
+  // POST /bounties/:id/claim requires an Idempotency-Key header. One key per
+  // claim intent: reused when a failed request is retried, rotated once the
+  // claim has a definitive outcome.
+  const idempotencyKeyRef = useRef(generateIdempotencyKey());
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -35,7 +40,8 @@ export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty)
     setIsClaiming(true);
     
     try {
-      const raw = await apiPost<RawBounty>(`/bounties/${bountyId}/claim`, {});
+      const raw = await apiPost<RawBounty>(`/bounties/${bountyId}/claim`, {}, idempotencyKeyRef.current);
+      idempotencyKeyRef.current = generateIdempotencyKey();
       
       const bounty = adaptBounty(raw);
       const result: ClaimResult = {
@@ -55,6 +61,7 @@ export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty)
         apiError?.message?.toLowerCase().includes('claimed by another user');
 
       if (isAlreadyClaimed) {
+        idempotencyKeyRef.current = generateIdempotencyKey();
         try {
           const updatedResult = await fetchBounty(bountyId, undefined);
           const result: ClaimResult = {
