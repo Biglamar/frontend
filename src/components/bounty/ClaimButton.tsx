@@ -190,6 +190,21 @@ export function ClaimButton({
   const needsPayoutWallet = !!user && !user.stellarAddress;
 
   if (status === 'claimed') {
+    const claimedById = bounty?.claimedById ?? fallbackBounty?.claimedById;
+    if (user && claimedById && user.id === claimedById) {
+      return (
+        <div
+          className={`p-4 bg-green-50 border border-green-200 rounded-lg ${className}`}
+          role="status"
+        >
+          <h4 className="text-green-700 font-semibold">You&apos;re working on this</h4>
+          <p className="text-green-600 text-sm mt-1">
+            Open a pull request that says <code>Fixes #{bounty?.issueNumber ?? fallbackBounty?.issueNumber}</code> in
+            its description. The reward is released automatically when it merges.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className={`p-4 bg-gray-50 border border-gray-200 rounded-lg ${className}`}>
         <p className="text-gray-600">
