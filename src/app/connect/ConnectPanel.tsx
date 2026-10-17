@@ -52,6 +52,7 @@ import { GITHUB_OAUTH_URL } from "@/lib/config";
 import { useAuth } from "@/context/AuthContext";
 import { useWallet } from "@/context/WalletContext";
 import { messages, t } from "@/lib/messages";
+import { storeReturnTo } from "@/lib/return-to";
 
 export function ConnectPanel() {
   const { user, loading: authLoading } = useAuth();
@@ -137,6 +138,11 @@ export function ConnectPanel() {
              announced as a link containing a button. */
           <a
             href={GITHUB_OAUTH_URL}
+            // Remember where the user was heading (/connect?returnTo=...) so
+            // the OAuth callback can send them back after sign-in.
+            onClick={() =>
+              storeReturnTo(new URLSearchParams(window.location.search).get("returnTo"))
+            }
             className="mt-4 flex h-10 w-full items-center justify-center rounded-full bg-slate-900 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
           >
             {messages["connect.github.cta"]}

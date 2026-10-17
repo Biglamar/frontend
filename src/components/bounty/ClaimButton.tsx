@@ -122,7 +122,11 @@ export function ClaimButton({
     // from the JWT), so a signed-out click goes to /connect rather than
     // firing a request that can only 401.
     if (!user) {
-      router.push('/connect');
+      // Carry the current page through sign-in so the user lands back here.
+      const here = window.location.pathname + window.location.search;
+      router.push(
+        here === '/' ? '/connect' : `/connect?returnTo=${encodeURIComponent(here)}`,
+      );
       return;
     }
     dispatch({ type: 'RESET' });
