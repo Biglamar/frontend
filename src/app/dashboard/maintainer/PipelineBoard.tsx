@@ -54,9 +54,11 @@ const MAX_VISIBLE_PER_COLUMN = 8;
 
 function PipelineColumn({
   label,
+  status,
   bounties,
 }: {
   label: string;
+  status: BountyStatus;
   bounties: Bounty[];
 }) {
   const visible = bounties.slice(0, MAX_VISIBLE_PER_COLUMN);
@@ -78,7 +80,6 @@ function PipelineColumn({
             key={b.id}
             href={`/issues/${b.id}`}
             title={b.title}
-            aria-label={`${b.title}, ${formatCurrency(b.reward, b.asset)}`}
             className="block rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-colors hover:border-indigo-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700"
           >
             <p className="truncate text-xs text-slate-400 dark:text-slate-500">
@@ -99,7 +100,7 @@ function PipelineColumn({
         )}
         {hiddenCount > 0 && (
           <Link
-            href="/issues"
+            href={`/issues?status=${status}`}
             className="block rounded-xl border border-dashed border-slate-200 px-3 py-2 text-center text-xs font-medium text-indigo-600 transition-colors hover:border-indigo-300 dark:border-slate-800 dark:text-indigo-400 dark:hover:border-indigo-700"
           >
             View all {bounties.length} in Bounty pipeline
@@ -134,6 +135,7 @@ export function PipelineBoard({ bounties }: { bounties: Bounty[] }) {
           <PipelineColumn
             key={stage.status}
             label={stage.label}
+            status={stage.status}
             bounties={byStatus.get(stage.status) ?? []}
           />
         ))}
