@@ -5,8 +5,17 @@ import type { Bounty, ClaimResult } from '@/types/bounty';
 
 interface ApiError {
   status?: number;
+  code?: string;
   message?: string;
 }
+
+// The backend rejects a claim on an already-claimed bounty with
+// InvalidBountyTransitionError ("Cannot transition bounty from "claimed" to
+// "claimed""), which currently surfaces as a 500 without a machine-readable
+// code. Match that real message alongside a 409 / ALREADY_CLAIMED code so the
+// race UI works until the backend returns a proper 409.
+const ALREADY_CLAIMED_CODES = ['BOUNTY_ALREADY_CLAIMED', 'ALREADY_CLAIMED'];
+const CLAIMED_TRANSITION_RE = /cannot transition bounty from ["']?claimed["']? to ["']?claimed["']?/i;
 
 export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty) => void) {
   const [isClaiming, setIsClaiming] = useState(false);
@@ -50,7 +59,9 @@ export function useClaimRace(bountyId: string, onClaimSuccess?: (bounty: Bounty)
     } catch (error) {
       const apiError = error as ApiError;
       const isAlreadyClaimed = 
-        apiError?.status === 409 || 
+        apiError?.status === 409 ||
+        (apiError?.code !== undefined && ALREADY_CLAIMED_CODES.includes(apiError.code)) ||
+        CLAIMED_TRANSITION_RE.test(apiError?.message ?? '') ||
         apiError?.message?.toLowerCase().includes('already claimed') ||
         apiError?.message?.toLowerCase().includes('claimed by another user');
 

@@ -144,6 +144,11 @@ export function filterBounties(bounties: Bounty[], query: BountyQuery): Bounty[]
   });
 }
 
+function createdAtMs(b: Bounty): number {
+  const t = b.createdAt ? new Date(b.createdAt).getTime() : NaN;
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function sortBounties(bounties: Bounty[], sort: SortOption): Bounty[] {
   const sorted = [...bounties];
   switch (sort) {
@@ -158,14 +163,27 @@ function sortBounties(bounties: Bounty[], sort: SortOption): Bounty[] {
       );
       break;
     case "deadline-asc":
+      // Upcoming deadlines first (soonest at the top), then bounties whose
+      // deadline already passed (most recently expired first), then
+      // open-ended bounties with no deadline.
       sorted.sort((a, b) => {
         if (!a.deadline && !b.deadline) return 0;
         if (!a.deadline) return 1;
         if (!b.deadline) return -1;
-        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+        const now = Date.now();
+        const aTime = new Date(a.deadline).getTime();
+        const bTime = new Date(b.deadline).getTime();
+        const aPast = aTime < now;
+        const bPast = bTime < now;
+        if (aPast !== bPast) return aPast ? 1 : -1;
+        return aPast ? bTime - aTime : aTime - bTime;
       });
       break;
     case "default":
+      // "Newest": the backend returns bounties in unspecified order, so
+      // order by creation time. Array#sort is stable, so bounties without a
+      // createdAt (mock data) keep their incoming order.
+      sorted.sort((a, b) => createdAtMs(b) - createdAtMs(a));
       break;
   }
   return sorted;

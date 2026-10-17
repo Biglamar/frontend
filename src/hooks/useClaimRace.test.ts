@@ -71,6 +71,35 @@ describe("useClaimRace (mounted)", () => {
     expect(onClaimSuccess).toHaveBeenCalledWith(bounty);
   });
 
+  it("maps the backend's claimed-to-claimed transition error to ALREADY_CLAIMED", async () => {
+    mockApiPost.mockRejectedValueOnce({
+      status: 500,
+      message: 'Cannot transition bounty from "claimed" to "claimed"',
+    });
+    mockFetchBounty.mockResolvedValueOnce({ data: bounty, source: "api" } as never);
+    const { result } = renderHook(() => useClaimRace("b1"));
+
+    let outcome: Awaited<ReturnType<typeof result.current.claim>> | undefined;
+    await act(async () => {
+      outcome = await result.current.claim();
+    });
+
+    expect(outcome).toMatchObject({ success: false, error: "ALREADY_CLAIMED" });
+  });
+
+  it("maps a machine-readable already-claimed code to ALREADY_CLAIMED", async () => {
+    mockApiPost.mockRejectedValueOnce({ status: 500, code: "BOUNTY_ALREADY_CLAIMED" });
+    mockFetchBounty.mockResolvedValueOnce({ data: bounty, source: "api" } as never);
+    const { result } = renderHook(() => useClaimRace("b1"));
+
+    let outcome: Awaited<ReturnType<typeof result.current.claim>> | undefined;
+    await act(async () => {
+      outcome = await result.current.claim();
+    });
+
+    expect(outcome).toMatchObject({ success: false, error: "ALREADY_CLAIMED" });
+  });
+
   it("maps a 409 to ALREADY_CLAIMED with the refreshed bounty", async () => {
     mockApiPost.mockRejectedValueOnce({ status: 409, message: "conflict" });
     mockFetchBounty.mockResolvedValueOnce({ data: bounty } as never);

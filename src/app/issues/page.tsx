@@ -5,6 +5,7 @@ import { fetchBounties } from "@/lib/api";
 import { mockBounties } from "@/lib/mock-data";
 import { BountyCard } from "@/components/bounty/BountyCard";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { IssuesFilterForm } from "@/components/bounty/IssuesFilterForm";
 import { Button } from "@/components/ui/Button";
 import { DataSourceNotice } from "@/components/ui/DataSourceNotice";
 import { formatInteger } from "@/lib/utils";
@@ -130,9 +131,7 @@ export default async function IssuesPage({
           bookmarkable URL and the page works with JavaScript disabled. The
           hidden `status` field carries the pill selection above through the
           same submit, since HTML forms only send their own named fields. */}
-      <form
-        method="get"
-        action="/issues"
+      <IssuesFilterForm
         className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/40"
       >
         {query.status !== "all" && <input type="hidden" name="status" value={query.status} />}
@@ -141,6 +140,7 @@ export default async function IssuesPage({
           Difficulty
           <select
             name="difficulty"
+            data-default="all"
             defaultValue={query.difficulty}
             className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
           >
@@ -156,6 +156,7 @@ export default async function IssuesPage({
           Asset
           <select
             name="asset"
+            data-default="all"
             defaultValue={query.asset}
             className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
           >
@@ -197,6 +198,7 @@ export default async function IssuesPage({
           Sort by
           <select
             name="sort"
+            data-default="default"
             defaultValue={query.sort}
             className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
           >
@@ -219,7 +221,7 @@ export default async function IssuesPage({
             Clear all
           </Link>
         )}
-      </form>
+      </IssuesFilterForm>
 
       {visible.length === 0 ? (
         filterActive ? (

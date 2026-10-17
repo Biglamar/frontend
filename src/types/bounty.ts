@@ -32,6 +32,8 @@ export interface Bounty {
   issueNumber: number;
   labels: string[];
   deadline: string | null;
+  /** ISO creation timestamp; backs the "Newest" sort. Absent on mock data. */
+  createdAt?: string;
   claimedBy?: string;
   claimedById?: string;
   /**
