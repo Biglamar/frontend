@@ -45,6 +45,7 @@ This project is licensed under the [MIT License](LICENSE).
 | ------------------------------------------------------------ | ------------------------ |
 | Landing page / product pitch                                 | `/`                      |
 | Browse paid issues (bounties)                                | `/issues`                |
+| Create a bounty (issue + reward amount)                      | `/issues/create`         |
 | Bounty detail, escrow status, claim flow                     | `/issues/[id]`           |
 | Milestone funding + recurring maintenance pools              | `/milestones`            |
 | Connect GitHub + Stellar wallet (Freighter)                  | `/connect`               |
@@ -69,6 +70,7 @@ Next.js (App Router)                 this repo
 - **Framework**: Next.js 16 (App Router, React 19, TypeScript, Turbopack).
 - **Styling**: Tailwind CSS v4, dark-mode-first design system (`slate`/`emerald` palette).
 - **Data fetching**: Per-resource fetchers in `src/lib/api.ts` (`fetchBounties`, `fetchMilestones`, …) try the live API and fall back to `src/lib/mock-data.ts` if it's unreachable — the app is fully browsable without the backend running. Each fetcher returns a `FetchResult` with a `source` field (`"api"` or `"mock"`) so callers can tell where the data came from.
+- **Live bounty status (client-side polling)**: bounty detail pages poll the backend for status changes rather than waiting for a push. `useBountyStatus` (`src/hooks/useBountyStatus.ts`) wraps a module-level per-bounty poller registry (`src/hooks/bountyPoller.ts`) so multiple components on the same page share **one** fetch loop per bounty — `ClaimButton` polls every **2 s** and `LiveBountyStatus` every **5 s**, but they don't double up. Polling stops as soon as a terminal status (`paid`, `refunded`, `expired`) is observed. The generic `useSmartPolling` hook applies the same shape elsewhere: after 3 consecutive identical responses it backs the interval off by ×1.5 up to a 30 s ceiling, resets on any data change, and pauses entirely while the tab is hidden (`visibilitychange`). Load profile: an idle open bounty page costs one `GET /bounties/:id` per interval per *page*, not per component.
 - **Wallet integration**: `src/lib/wallet.ts` wraps `@stellar/freighter-api` for connecting a Stellar wallet and signing transactions (escrow funding, milestone deposits) client-side.
 - **GitHub auth**: The "Connect GitHub" button redirects to the backend's OAuth endpoint (`NEXT_PUBLIC_API_URL/auth/github`); the frontend itself holds no GitHub credentials.
 
@@ -135,7 +137,7 @@ Both `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_STELLAR_NETWORK` are validated at bu
 
 | Variable                      | Purpose                                                                                                                                                       | Default                                                                                                                                                                                             |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL`         | Base URL of the `mergefi-backend` API. Must be a well-formed URL.                                                                                             | `http://localhost:4000/api`                                                                                                                                                                         |
+| `NEXT_PUBLIC_API_URL`         | Base URL of the `mergefi-backend` API. Must be a well-formed http(s) URL. Trailing slashes are stripped (so composed request paths never contain `//`), and when `NEXT_PUBLIC_STELLAR_NETWORK=PUBLIC` the URL must use `https:` — plain `http:` is only allowed on loopback (`localhost`, `127.0.0.1`, `::1`).                        | `http://localhost:4000/api`                                                                                                                                                                         |
 | `NEXT_PUBLIC_STELLAR_NETWORK` | Must be exactly `TESTNET` or `PUBLIC` (case-sensitive) — selects the Freighter network passphrase used to sign transactions.                                  | **None.** Network selection is too consequential to guess a default for — the wrong value signs transactions with the wrong passphrase. Set it explicitly (`.env.example` does this for local dev). |
 | `NEXT_PUBLIC_SITE_URL`        | Base URL used by `src/app/sitemap.ts` to generate absolute sitemap URLs. Set this when deploying to a domain other than `mergefi.app` (staging, forks, etc.). | `https://mergefi.app`                                                                                                                                                                               |
 
@@ -203,17 +205,18 @@ Sitemaps are split into 50,000-URL files (`/sitemaps/<id>.xml`, with a permanent
 
 ## Example user journey
 
-1. A maintainer connects a GitHub repository from `/connect`.
-2. From their dashboard, they mark an issue with a **100 USDC** reward.
-3. A sponsor funds the bounty from `/dashboard/sponsor` — the backend locks the funds in a Soroban escrow contract.
-4. A contributor browses `/issues`, claims the bounty, and opens a pull request.
+1. A maintainer signs in with GitHub and connects their Freighter wallet from `/connect`. (Connecting a GitHub _repository_ is a roadmap item — see below; today no repository sync happens here.)
+2. From their `/dashboard/maintainer` pipeline they click **Create bounty** (`/issues/create`) and set a **100 USDC** reward on an issue.
+3. A sponsor opens that bounty on `/issues/[id]` and clicks **Fund this bounty** — the backend locks the funds in a Soroban escrow contract. (`/dashboard/sponsor` tracks that spend; the funding action itself lives on the issue page.)
+4. A contributor browses `/issues`, claims the bounty from `/issues/[id]`, and opens a pull request.
 5. The maintainer reviews and merges it on GitHub.
 6. The backend detects the merge via a GitHub webhook and calls the escrow contract's release function.
 7. The contributor is paid on-chain within minutes, and their `/reputation/[handle]` profile updates.
 
 ## Roadmap
 
+- GitHub repository sync from `/connect` — maintainers currently create bounties by hand at `/issues/create` rather than picking from a synced repository list.
+- Push-based (websocket) bounty/escrow status — the current polling implementation (see Architecture) is the interim until the backend emits subscription-friendly events.
 - Wire the contributor/maintainer dashboards to authenticated sessions instead of a hardcoded demo handle.
-- Real-time bounty/escrow status via websockets or polling once the backend emits webhook-driven events.
 - AI-powered issue recommendations based on a contributor's language/repo history.
 - Organization verification badges and cross-repository reputation aggregation.

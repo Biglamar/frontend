@@ -48,6 +48,27 @@ describe("stripMarkdownToPlainText", () => {
     expect(stripMarkdownToPlainText(input)).toBe("first second one two");
   });
 
+  it("strips GFM task-list checkboxes instead of leaving '[ ]'/'[x]' visible (#682)", () => {
+    const input = "- [ ] Add tests\n- [x] Fix the bug\n* [X] Docs pass";
+    expect(stripMarkdownToPlainText(input)).toBe("Add tests Fix the bug Docs pass");
+  });
+
+  it("drops GFM table separator rows and replaces pipes with spaces (#682)", () => {
+    const input = "| Name | Status |\n|------|--------|\n| alice | paid |\n| bob | claimed |";
+    expect(stripMarkdownToPlainText(input)).toBe("Name Status alice paid bob claimed");
+  });
+
+  it("handles table separator rows with alignment colons", () => {
+    const input = "| Left | Right |\n| :--- | ----: |\n| a | b |";
+    expect(stripMarkdownToPlainText(input)).toBe("Left Right a b");
+  });
+
+  it("keeps table cell content readable when the table is the whole body", () => {
+    const result = stripMarkdownToPlainText("| col1 | col2 |\n|-|-|\n| 1 | 2 |");
+    expect(result).not.toContain("|");
+    expect(result).toBe("col1 col2 1 2");
+  });
+
   it("strips blockquote markers", () => {
     expect(stripMarkdownToPlainText("> quoted text")).toBe("quoted text");
   });
