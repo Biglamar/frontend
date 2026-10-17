@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { takeReturnTo } from "@/lib/return-to";
 import type { UserRole } from "@/types";
 
 const ROLE_REDIRECT_MAP: Record<UserRole, string> = {
@@ -64,6 +65,25 @@ export function CallbackClient() {
     const code = searchParams.get("code");
     const token = searchParams.get("token");
 
+    async function completeSignIn(accessToken: string) {
+      const resolvedUser = await login(accessToken);
+      // A null user here means the token exchange did not resolve a
+      // profile. Landing on a dashboard would render that dashboard's
+      // demo/mock data as if it were real, so surface the failure instead.
+      if (!resolvedUser) {
+        setError("sign-in-failed");
+        return;
+      }
+      // A validated same-origin destination (e.g. the bounty the user was
+      // claiming) wins over the default landing pages.
+      router.replace(
+        takeReturnTo() ??
+          (shouldFinishConnect(resolvedUser.roles, resolvedUser.stellarAddress)
+            ? "/connect"
+            : redirectForRoles(resolvedUser.roles)),
+      );
+    }
+
     async function handleCallback() {
       // Try code-based handoff first (backend redirects with ?code=)
       if (code) {
@@ -85,57 +105,31 @@ export function CallbackClient() {
             throw new Error("No access token in response");
           }
 
-          await login(accessToken);
-          router.replace("/dashboard/contributor");
-          return;
+          await completeSignIn(accessToken);
         } catch {
-          setError("Could not complete sign-in. Please try again.");
-          return;
+          setError("sign-in-failed");
         }
+        return;
       }
 
       // Fallback: direct token auth
       if (token) {
+        // Strip the JWT from the URL immediately so it doesn't persist in
+        // browser history, referrer headers, or server logs (#9).
+        window.history.replaceState({}, "", window.location.pathname);
         try {
-          await login(token);
-          router.replace("/dashboard/contributor");
+          await completeSignIn(token);
         } catch {
-          setError("Could not complete sign-in. Please try again.");
+          setError("sign-in-failed");
         }
         return;
       }
 
       // No code or token
-      setError("No token was returned by GitHub sign-in.");
+      setError("no-token");
     }
 
     void handleCallback();
-    if (!token) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setError("no-token");
-      return;
-    }
-
-    // Strip the JWT from the URL immediately so it doesn't persist in
-    // browser history, referrer headers, or server logs (#9).
-    window.history.replaceState({}, "", window.location.pathname);
-
-    login(token)
-      .then((resolvedUser) => {
-        // A null user here means the token exchange did not resolve a
-        // profile. Landing on a dashboard would render that dashboard's
-        // demo/mock data as if it were real, so surface the failure instead.
-        if (!resolvedUser) {
-          setError("sign-in-failed");
-          return;
-        }
-        router.replace(
-          shouldFinishConnect(resolvedUser.roles, resolvedUser.stellarAddress)
-            ? "/connect"
-            : redirectForRoles(resolvedUser.roles),
-        );
-      })
-      .catch(() => setError("sign-in-failed"));
   }, [searchParams, login, router]);
 
   const copy =

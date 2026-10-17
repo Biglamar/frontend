@@ -401,6 +401,22 @@ describe("generateIdempotencyKey", () => {
     const keys = new Set(Array.from({ length: 50 }, () => generateIdempotencyKey()));
     expect(keys.size).toBe(50);
   });
+
+  it("builds a v4 UUID from getRandomValues when randomUUID is unavailable", () => {
+    const original = crypto.randomUUID;
+    Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+    const spy = jest.spyOn(Math, "random");
+    try {
+      const key = generateIdempotencyKey();
+      expect(key).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      Object.defineProperty(crypto, "randomUUID", { value: original, configurable: true });
+    }
+  });
 });
 
 // ─── toCents / toMajorUnits ────────────────────────────────────────────────
