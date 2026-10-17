@@ -79,7 +79,7 @@ export function Tabs<T extends string>({
             role="tab"
             id={`tab-${tab.key}`}
             aria-selected={isActive}
-            aria-controls={`tabpanel-${tab.key}`}
+            aria-controls={isActive ? `tabpanel-${tab.key}` : undefined}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(tab.key)}
             onKeyDown={(e) => handleKeyDown(e, tab.key)}

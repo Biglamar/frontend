@@ -15,13 +15,11 @@ export interface BarChartPoint {
  * widely-supported role) and it means every figure is available as real text
  * to a screen reader rather than being reconstructed from bar heights.
  *
- * Hover-only information used to live in a `title` attribute, which is not
- * reachable by keyboard and is not reliably announced. Each bar is now
- * focusable with a visible focus ring and reveals the same tooltip on focus
- * (group-focus-within) as on hover, so a keyboard user gets the identical
- * detail a mouse user does. The tooltip lives inside the aria-hidden subtree
- * on purpose: sighted keyboard users need to *see* it, while assistive tech
- * should read the table once rather than announce every bar again.
+ * The visual bars are purely decorative and non-focusable within the
+ * aria-hidden container to comply with axe's aria-hidden-focus rule (#708).
+ * The accessible equivalent is the visually-hidden data table carrying the same
+ * numbers. Sighted mouse users can hover to reveal the tooltip, while assistive
+ * tech reads the structured table.
  *
  * Colour is never the only signal: negative bars are drawn with a diagonal
  * stripe as well as a different hue, and the value keeps its sign in both the
@@ -70,11 +68,10 @@ export function BarChart({
             >
               <div className="relative flex w-full flex-1 items-end justify-center">
                 <div
-                  tabIndex={0}
                   className={
                     isNegative
-                      ? "w-full max-w-8 rounded-t-md bg-rose-600/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 dark:bg-rose-400/70 dark:focus-visible:outline-rose-400"
-                      : "w-full max-w-8 rounded-t-md bg-indigo-500/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:bg-indigo-400/70 dark:focus-visible:outline-indigo-400"
+                      ? "w-full max-w-8 rounded-t-md bg-rose-600/80 dark:bg-rose-400/70"
+                      : "w-full max-w-8 rounded-t-md bg-indigo-500/80 dark:bg-indigo-400/70"
                   }
                   style={{
                     height: `${pct}%`,

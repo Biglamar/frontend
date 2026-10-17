@@ -142,3 +142,16 @@ describe("Tabs — keyboard navigation (#24)", () => {
     expect(screen.getByRole("tab", { name: "First" })).toHaveFocus();
   });
 });
+
+describe("Tabs — aria-controls (#710)", () => {
+  it("sets aria-controls on the active tab and omits it on inactive tabs", () => {
+    render(<Tabs tabs={sampleTabs} active="active" onChange={() => {}} />);
+    const activeTab = screen.getByRole("tab", { name: "Active" });
+    const completedTab = screen.getByRole("tab", { name: "Completed" });
+    const archivedTab = screen.getByRole("tab", { name: "Archived" });
+
+    expect(activeTab).toHaveAttribute("aria-controls", "tabpanel-active");
+    expect(completedTab).not.toHaveAttribute("aria-controls");
+    expect(archivedTab).not.toHaveAttribute("aria-controls");
+  });
+});

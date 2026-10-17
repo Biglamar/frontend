@@ -268,14 +268,18 @@ export interface ActivityEvent {
   occurredAt: string;
 }
 
-// minutesAgo(n) anchors each mock event n minutes before whenever this
-// module is evaluated, so the feed's relative-time text keeps advancing
-// (within a given server render) instead of being frozen at deploy time.
-function minutesAgo(n: number): string {
-  return new Date(Date.now() - n * 60_000).toISOString();
+// Raw mock events data template without pre-evaluated timestamps (#707).
+interface MockActivityTemplate {
+  id: string;
+  handle: string;
+  action: string;
+  target: string;
+  amount?: number;
+  asset?: "USDC" | "XLM";
+  minutesAgo: number;
 }
 
-export const recentActivity: ActivityEvent[] = [
+const mockActivityTemplates: MockActivityTemplate[] = [
   {
     id: "a1",
     handle: "devrel_ana",
@@ -283,21 +287,21 @@ export const recentActivity: ActivityEvent[] = [
     target: "core-indexer#288",
     amount: 40,
     asset: "USDC",
-    occurredAt: minutesAgo(6),
+    minutesAgo: 6,
   },
   {
     id: "a2",
     handle: "0xkoda",
     action: "claimed",
     target: "soroban-escrow-sdk#17",
-    occurredAt: minutesAgo(22),
+    minutesAgo: 22,
   },
   {
     id: "a3",
     handle: "linh_dev",
     action: "opened a pull request for",
     target: "stellar-wallet-kit#475",
-    occurredAt: minutesAgo(48),
+    minutesAgo: 48,
   },
   {
     id: "a4",
@@ -306,7 +310,7 @@ export const recentActivity: ActivityEvent[] = [
     target: "v2.0: Multi-asset escrow",
     amount: 2500,
     asset: "USDC",
-    occurredAt: minutesAgo(71),
+    minutesAgo: 71,
   },
   {
     id: "a4b",
@@ -315,7 +319,7 @@ export const recentActivity: ActivityEvent[] = [
     target: "v1.4: Indexer performance pass",
     amount: 15000,
     asset: "XLM",
-    occurredAt: minutesAgo(95),
+    minutesAgo: 95,
   },
   {
     id: "a5",
@@ -324,16 +328,55 @@ export const recentActivity: ActivityEvent[] = [
     target: "core-indexer#301",
     amount: 480,
     asset: "USDC",
-    occurredAt: minutesAgo(130),
+    minutesAgo: 130,
   },
   {
     id: "a6",
     handle: "qa_marcus",
     action: "joined as a",
     target: "contributor",
-    occurredAt: minutesAgo(210),
+    minutesAgo: 210,
   },
 ];
+
+// minutesAgo(n) anchors each mock event n minutes before the current time,
+// computed dynamically at request or render time rather than frozen at module load (#707).
+function minutesAgo(n: number): string {
+  return new Date(Date.now() - n * 60_000).toISOString();
+}
+
+/**
+ * Returns recent activity events with timestamps computed at call/request time (#707).
+ * Avoids stale timestamps on long-lived Next.js server processes.
+ */
+export function getRecentActivity(): ActivityEvent[] {
+  return mockActivityTemplates.map(({ minutesAgo: mins, ...event }) => ({
+    ...event,
+    occurredAt: minutesAgo(mins),
+  }));
+}
+
+/**
+ * Dynamic proxy export for recentActivity (#707).
+ * Dynamically computes timestamps whenever accessed or iterated so long-lived servers
+ * do not serve stale module-load timestamps.
+ */
+export const recentActivity: ActivityEvent[] = new Proxy([] as ActivityEvent[], {
+  get(_target, prop, receiver) {
+    const list = getRecentActivity();
+    const val = Reflect.get(list, prop, receiver);
+    return typeof val === "function" ? val.bind(list) : val;
+  },
+  has(_target, prop) {
+    return prop in getRecentActivity();
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    return Object.getOwnPropertyDescriptor(getRecentActivity(), prop);
+  },
+  ownKeys() {
+    return Reflect.ownKeys(getRecentActivity());
+  },
+});
 
 
 // Weekly earnings/spend series (8 weeks) for dashboard charts.
