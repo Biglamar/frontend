@@ -172,6 +172,43 @@ describe("applyBountyQuery", () => {
     );
     expect(result.items.map((b) => b.id)).toEqual(["z", "y", "x"]);
   });
+
+  it("puts expired deadlines after upcoming ones when sorting by soonest deadline", () => {
+    const day = 86400000;
+    const items = [
+      bounty({ id: "none", deadline: null }),
+      bounty({ id: "expired-old", deadline: new Date(Date.now() - 5 * day).toISOString() }),
+      bounty({ id: "later", deadline: new Date(Date.now() + 5 * day).toISOString() }),
+      bounty({ id: "expired-new", deadline: new Date(Date.now() - day).toISOString() }),
+      bounty({ id: "soon", deadline: new Date(Date.now() + day).toISOString() }),
+    ];
+    const result = applyBountyQuery(
+      items,
+      { status: "all", difficulty: "all", asset: "all", sort: "deadline-asc", page: 1 },
+      10,
+    );
+    expect(result.items.map((b) => b.id)).toEqual([
+      "soon",
+      "later",
+      "expired-new",
+      "expired-old",
+      "none",
+    ]);
+  });
+
+  it("sorts the default 'Newest' order by createdAt descending", () => {
+    const items = [
+      bounty({ id: "old", createdAt: "2024-01-01T00:00:00.000Z" }),
+      bounty({ id: "new", createdAt: "2025-01-01T00:00:00.000Z" }),
+      bounty({ id: "mid", createdAt: "2024-06-01T00:00:00.000Z" }),
+    ];
+    const result = applyBountyQuery(
+      items,
+      { status: "all", difficulty: "all", asset: "all", sort: "default", page: 1 },
+      10,
+    );
+    expect(result.items.map((b) => b.id)).toEqual(["new", "mid", "old"]);
+  });
 });
 
 describe("buildBountyQueryString", () => {

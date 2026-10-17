@@ -22,6 +22,7 @@ export class ApiRequestError extends Error {
     message: string,
     public status: number,
     public retryAfter?: number,
+    public code?: string,
   ) {
     super(message);
   }
@@ -147,16 +148,18 @@ export async function apiRequest<T>(
     if (!res.ok) {
       const body = await res.text();
       let message = body;
+      let code: string | undefined;
       try {
         const parsed = JSON.parse(body);
         // A JSON body without a `.message` (e.g. a NestJS validation error
         // shaped like `{statusCode,error,details}`) must not fall back to the
         // raw JSON text — that would get rendered verbatim in the UI (#187).
         message = parsed.message ?? `Request failed (${res.status})`;
+        if (typeof parsed.code === "string") code = parsed.code;
       } catch {
         // plain-text error body, use as-is
       }
-      throw new ApiRequestError(message || `Request failed (${res.status})`, res.status);
+      throw new ApiRequestError(message || `Request failed (${res.status})`, res.status, undefined, code);
     }
     if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;

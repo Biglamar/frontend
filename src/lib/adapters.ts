@@ -56,6 +56,7 @@ export interface RawBounty {
   difficulty: Difficulty;
   status: Bounty["status"];
   deadline: string | null;
+  createdAt?: string | null;
   escrowId: string | null;
   issue?: RawIssue;
   claimedBy?: RawUser | null;
@@ -138,6 +139,7 @@ export function adaptBounty(raw: RawBounty): Bounty {
     // timestamp that would make daysUntil() render it as already expired
     // (#193). Consumers must render a "No deadline" state for null.
     deadline: raw.deadline,
+    createdAt: raw.createdAt ?? undefined,
     labels: raw.issue?.labels ?? [],
     claimedBy: raw.claimedBy?.username,
     claimedById: raw.claimedBy?.id,
