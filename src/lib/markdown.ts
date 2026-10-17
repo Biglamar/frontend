@@ -38,9 +38,22 @@ export function stripMarkdownToPlainText(markdown: string): string {
     .replace(/^#{1,6}\s+/gm, "")
     // Blockquotes.
     .replace(/^>\s?/gm, "")
+    // GFM task-list markers: "- [ ] item" / "- [x] item" — strip the whole
+    // "- [ ] " prefix (checkbox included) before the generic list-marker
+    // rule below would leave "[ ] item" behind as visible noise (#682).
+    .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, "")
     // List markers.
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\d+\.\s+/gm, "")
+    // GFM tables: drop the separator row (|---|---| / | :-- | --: | / |-|-|)
+    // and turn the remaining column pipes into spaces so "| a | b |" reads
+    // as "a b" in a one-line preview instead of showing raw table syntax
+    // (#682). The separator rule matches any line composed solely of
+    // pipes/colons/dashes/whitespace containing at least one dash — it must
+    // run before the pipe replacement, because once the pipes are spaces a
+    // separator row is just a whitespace-only line.
+    .replace(/^[ \t]*[\t| :-]*-[\t| :-]*$/gm, "")
+    .replace(/\|/g, " ")
     // Collapse newlines/whitespace into single spaces for inline flow.
     .replace(/\r\n/g, "\n")
     .replace(/\n+/g, " ")
