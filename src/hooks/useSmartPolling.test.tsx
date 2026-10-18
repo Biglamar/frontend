@@ -78,6 +78,50 @@ describe("useSmartPolling", () => {
     expect(result.current.isBackingOff).toBe(true);
   });
 
+  it("actually slows the timer on backoff (capped at maxBackoff) and resets on refetch", async () => {
+    const fetchFn = jest.fn(async () => ({ n: 1 }));
+    const { result } = renderHook(() =>
+      useSmartPolling({
+        fetchFn,
+        interval: 1000,
+        unchangedThreshold: 2,
+        backoffMultiplier: 2,
+        maxBackoff: 4000,
+      }),
+    );
+    const advance = async (ms: number) => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    };
+
+    await advance(0);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await advance(1000); // call 2 (unchanged 1)
+    await advance(1000); // call 3 (unchanged 2) → interval 2000
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(result.current.isBackingOff).toBe(true);
+
+    await advance(1000);
+    expect(fetchFn).toHaveBeenCalledTimes(3); // no call at the old 1s cadence
+    await advance(1000); // call 4 → interval 4000 (max)
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+
+    await advance(3000);
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+    await advance(1000); // call 5, still capped at 4000
+    expect(fetchFn).toHaveBeenCalledTimes(5);
+
+    // refetch resets to the base interval
+    await act(async () => {
+      await result.current.refetch();
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(6);
+    expect(result.current.isBackingOff).toBe(false);
+    await advance(1000);
+    expect(fetchFn).toHaveBeenCalledTimes(7);
+  });
+
   it("does not poll when enabled is false", async () => {
     const ref = { count: 0 };
     const fetchFn = createFetchFn([{ n: 1 }], ref);
