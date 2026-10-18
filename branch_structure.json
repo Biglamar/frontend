@@ -1,0 +1,24 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-568-569-useSmartPolling",
+    "main",
+    "origin",
+    "solver/issue-568-42-a0",
+    "solver/issue-569-43-a0"
+  ],
+  "parent": {
+    "fix/issue-568-569-useSmartPolling": "main",
+    "main": null,
+    "origin": "main",
+    "solver/issue-568-42-a0": "main",
+    "solver/issue-569-43-a0": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-568-569-useSmartPolling",
+    "origin",
+    "solver/issue-568-42-a0",
+    "solver/issue-569-43-a0"
+  ]
+}
