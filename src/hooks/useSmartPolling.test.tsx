@@ -50,6 +50,27 @@ describe("useSmartPolling", () => {
     await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
   });
 
+  it("keeps polling across re-renders when callbacks are inline (#568)", async () => {
+    const ref = { count: 0 };
+    const base = createFetchFn([{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }], ref);
+    renderHook(() =>
+      useSmartPolling({
+        fetchFn: () => base(),
+        compareFn: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        onDataChange: () => {},
+        interval: 1000,
+      }),
+    );
+
+    await waitFor(() => expect(base).toHaveBeenCalledTimes(1));
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+    }
+    await waitFor(() => expect(base.mock.calls.length).toBeGreaterThan(2));
+  });
+
   it("applies backoff after unchangedThreshold identical results", async () => {
     const ref = { count: 0 };
     // Always return the same value → compareFn says "unchanged"
