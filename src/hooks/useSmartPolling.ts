@@ -73,6 +73,19 @@ export function useSmartPolling<T>({
   const previousDataRef = useRef<T | null>(null);
   const isBackgroundedRef = useRef(false);
 
+  const fetchDataRef = useRef<() => Promise<void>>(async () => {});
+
+  // Restart the running timer so a changed currentIntervalRef takes effect.
+  // No-op when polling isn't active (no timer running).
+  const rescheduleInterval = useCallback(() => {
+    if (!intervalRef.current) return;
+    clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(
+      () => fetchDataRef.current(),
+      currentIntervalRef.current
+    );
+  }, []);
+
   const fetchData = useCallback(async () => {
     if (!isMountedRef.current) return;
     
@@ -90,7 +103,10 @@ export function useSmartPolling<T>({
         setData(result);
         previousDataRef.current = result;
         unchangedCountRef.current = 0;
-        currentIntervalRef.current = interval;
+        if (currentIntervalRef.current !== interval) {
+          currentIntervalRef.current = interval;
+          rescheduleInterval();
+        }
         dispatch({ type: 'STOP_BACKOFF' });
         onDataChange?.(result);
       } else {
@@ -103,6 +119,7 @@ export function useSmartPolling<T>({
           );
           if (newInterval > currentIntervalRef.current) {
             currentIntervalRef.current = newInterval;
+            rescheduleInterval();
             dispatch({ type: 'START_BACKOFF' });
           }
         }
@@ -118,14 +135,19 @@ export function useSmartPolling<T>({
         setIsLoading(false);
       }
     }
-  }, [fetchFn, compareFn, interval, backoffMultiplier, maxBackoff, unchangedThreshold, onDataChange]);
+  }, [fetchFn, compareFn, interval, backoffMultiplier, maxBackoff, unchangedThreshold, onDataChange, rescheduleInterval]);
+
+  fetchDataRef.current = fetchData;
 
   const refetch = useCallback(async () => {
-    currentIntervalRef.current = interval;
+    if (currentIntervalRef.current !== interval) {
+      currentIntervalRef.current = interval;
+      rescheduleInterval();
+    }
     dispatch({ type: 'STOP_BACKOFF' });
     unchangedCountRef.current = 0;
     await fetchData();
-  }, [fetchData, interval]);
+  }, [fetchData, interval, rescheduleInterval]);
 
   // Handle visibility change
   useEffect(() => {
