@@ -73,17 +73,26 @@ export function useSmartPolling<T>({
   const previousDataRef = useRef<T | null>(null);
   const isBackgroundedRef = useRef(false);
 
+  // Keep callbacks in refs so callers passing inline functions don't change
+  // fetchData's identity (which would tear down the polling effect each render).
+  const fetchFnRef = useRef(fetchFn);
+  const compareFnRef = useRef(compareFn);
+  const onDataChangeRef = useRef(onDataChange);
+  fetchFnRef.current = fetchFn;
+  compareFnRef.current = compareFn;
+  onDataChangeRef.current = onDataChange;
+
   const fetchData = useCallback(async () => {
     if (!isMountedRef.current) return;
-    
+
     try {
       setIsLoading(true);
-      const result = await fetchFn();
+      const result = await fetchFnRef.current();
       
       if (!isMountedRef.current) return;
 
       const hasChanged = previousDataRef.current !== null 
-        ? !compareFn(previousDataRef.current, result)
+        ? !compareFnRef.current(previousDataRef.current, result)
         : true;
 
       if (hasChanged) {
@@ -92,7 +101,7 @@ export function useSmartPolling<T>({
         unchangedCountRef.current = 0;
         currentIntervalRef.current = interval;
         dispatch({ type: 'STOP_BACKOFF' });
-        onDataChange?.(result);
+        onDataChangeRef.current?.(result);
       } else {
         unchangedCountRef.current += 1;
         
@@ -118,7 +127,7 @@ export function useSmartPolling<T>({
         setIsLoading(false);
       }
     }
-  }, [fetchFn, compareFn, interval, backoffMultiplier, maxBackoff, unchangedThreshold, onDataChange]);
+  }, [interval, backoffMultiplier, maxBackoff, unchangedThreshold]);
 
   const refetch = useCallback(async () => {
     currentIntervalRef.current = interval;
@@ -154,9 +163,7 @@ export function useSmartPolling<T>({
     };
   }, [enabled, fetchData]);
 
-  // Main polling effect - use a ref to track initial mount
-  const hasInitialized = useRef(false);
-
+  // Main polling effect: (re)creates the interval whenever it re-runs
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -164,13 +171,9 @@ export function useSmartPolling<T>({
       return;
     }
 
-    // Only start polling on initial mount or when enabled changes
-    if (!hasInitialized.current) {
-      hasInitialized.current = true;
-      dispatch({ type: 'START_POLLING' });
-      fetchData();
-      intervalRef.current = setInterval(fetchData, currentIntervalRef.current);
-    }
+    dispatch({ type: 'START_POLLING' });
+    fetchData();
+    intervalRef.current = setInterval(fetchData, currentIntervalRef.current);
 
     return () => {
       isMountedRef.current = false;
